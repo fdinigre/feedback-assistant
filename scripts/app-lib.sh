@@ -353,7 +353,12 @@ detect_provider() { # $1 project dir -> "gemini" | "claude" | "unknown"
   local existing; existing="$(current_provider "$1")"
   case "$existing" in gemini|claude) printf '%s' "$existing"; return ;; esac
 
-  # Otherwise it is a real question, and only the person can answer it: the two
+  # A colleague's copy — from Share a Clean Copy or downloaded from the release
+  # repository — has no git history. Colleagues mark through Gemini on their
+  # school account, so there is nothing to ask.
+  [ -d "$1/.git" ] || { printf 'gemini'; return; }
+
+  # Otherwise it is the maintainer's own copy, and only she can answer: the two
   # differ by what account they'll need and what it costs.
   local answer
   answer="$(choose "Which AI should do the marking?
