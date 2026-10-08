@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+/* The whole app's colour comes from Tailwind family utilities — 1180 slate
+   occurrences across 86 files, no raw hex anywhere — so the palette lives here
+   and nowhere else. Redefining the families reskins every screen at once, and
+   keeps the meanings the code already relies on:
+
+     slate    the neutral ramp, panel (50) through ink (900)
+     blue     settled, and the action to take next
+     amber    needs you
+     emerald  good / saved
+     rose     you marked lower than the tool  (paired with indigo below)
+     indigo   you marked higher than the tool
+     red      an error — the same brick as rose, which is what it already meant
+     purple / teal / sky / violet   ordinal pipeline-stage chips
+
+   Two surfaces sit outside the ramp on purpose. `ground` is the page itself and
+   is the LIGHTEST thing on screen; slate-50 has to stay a shade darker than it,
+   because 83 sites use bg-slate-50 for panels, table header strips, empty states
+   and hover fills that would otherwise vanish into the page. `white` stays
+   white: cards are white paper lying on a warm ground, which is what gives the
+   layout its depth without a single shadow. */
+
+@theme {
+  --color-ground: #fbfaf7; /* the page */
+  --color-panel: #f3f0e8; /* the sidebar, and strips that must read as "not the page" */
+
+  --color-slate-50: #f6f4ee; /* panels, table headers, empty states, hover fills */
+  --color-slate-100: #efece3; /* a deeper hover */
+  --color-slate-200: #e3dfd4; /* nearly every border in the app */
+  --color-slate-300: #d7d2c4; /* input borders, secondary buttons */
+  --color-slate-400: #bfb9a8;
+  --color-slate-500: #8a8475;
+  --color-slate-600: #6b675c; /* muted labels */
+  --color-slate-700: #57534a; /* body copy, and the primary button's hover */
+  --color-slate-800: #3a3732;
+  --color-slate-900: #1c1b18; /* ink: headings, and the page-level primary button */
+  --color-slate-950: #121110;
+
+  --color-blue-50: #f1f7fa;
+  --color-blue-100: #dceaf2;
+  --color-blue-200: #c6dae5;
+  --color-blue-300: #9ebfd1;
+  --color-blue-400: #6fa0b8;
+  --color-blue-500: #3b7795;
+  --color-blue-600: #1f5673; /* the accent: a stage you can run right now */
+  --color-blue-700: #1a4a63;
+  --color-blue-800: #143c51;
+  --color-blue-900: #102f3f;
+  --color-blue-950: #0a1f29;
+
+  --color-amber-50: #fdf3e7;
+  --color-amber-100: #f9e4c8;
+  --color-amber-200: #ebd6bc;
+  --color-amber-300: #e3c79f;
+  --color-amber-400: #d99a5b;
+  --color-amber-500: #c2691f; /* the clay that means "this needs you" */
+  --color-amber-600: #ad5b17;
+  --color-amber-700: #9a4f10;
+  --color-amber-800: #7a3e0c;
+  --color-amber-900: #62320a;
+  --color-amber-950: #3d1f06;
+
+  --color-emerald-50: #eff5ed;
+  --color-emerald-100: #d7e7d2;
+  --color-emerald-200: #c2d8bd;
+  --color-emerald-300: #9cbf95;
+  --color-emerald-400: #74a06c;
+  --color-emerald-500: #52824a;
+  --color-emerald-600: #3e6a38;
+  --color-emerald-700: #33552e;
+  --color-emerald-800: #2a4426;
+  --color-emerald-900: #233820;
+  --color-emerald-950: #121e10;
+
+  /* green is a three-file alias of emerald; same values, so the two cannot drift. */
+  --color-green-50: #eff5ed;
+  --color-green-100: #d7e7d2;
+  --color-green-200: #c2d8bd;
+  --color-green-300: #9cbf95;
+  --color-green-400: #74a06c;
+  --color-green-500: #52824a;
+  --color-green-600: #3e6a38;
+  --color-green-700: #33552e;
+  --color-green-800: #2a4426;
+  --color-green-900: #233820;
+  --color-green-950: #121e10;
+
+  /* rose and red both mean "wrong" and share one brick family. They stay
+     separate families because rose is half of the rose/indigo mark-comparison
+     pairing in MarksSummary and QuestionPanel, and collapsing it would lose it. */
+  --color-rose-50: #fbf0ed;
+  --color-rose-100: #f5d8d0;
+  --color-rose-200: #efc4ba;
+  --color-rose-300: #e09e8e;
+  --color-rose-400: #cc7560;
+  --color-rose-500: #b4503a;
+  --color-rose-600: #9b3c28;
+  --color-rose-700: #7f2f1f;
+  --color-rose-800: #67281b;
+  --color-rose-900: #552318;
+  --color-rose-950: #2e110b;
+
+  --color-red-50: #fbf0ed;
+  --color-red-100: #f5d8d0;
+  --color-red-200: #efc4ba;
+  --color-red-300: #e09e8e;
+  --color-red-400: #cc7560;
+  --color-red-500: #b4503a;
+  --color-red-600: #9b3c28;
+  --color-red-700: #7f2f1f;
+  --color-red-800: #67281b;
+  --color-red-900: #552318;
+  --color-red-950: #2e110b;
+
+  /* Violet-leaning, so "you marked higher" stays legible beside brick and is
+     never mistaken for the blue accent. */
+  --color-indigo-50: #f2f2fa;
+  --color-indigo-100: #dedef2;
+  --color-indigo-200: #c9c9e6;
+  --color-indigo-300: #a6a6d3;
+  --color-indigo-400: #8080bc;
+  --color-indigo-500: #5f5fa3;
+  --color-indigo-600: #4b4b8c;
+  --color-indigo-700: #3e3e73;
+  --color-indigo-800: #33335c;
+  --color-indigo-900: #2b2b4d;
+  --color-indigo-950: #19192e;
+
+  /* Stage chips, all bg-100 over text-800. Their 100s carry more chroma than
+     the neutrals deliberately: on a warm ground a pale tint reads as cream. */
+  --color-purple-100: #eadaea;
+  --color-purple-300: #c09ec0;
+  --color-purple-800: #4a314a;
+
+  --color-teal-100: #d3e6e3;
+  --color-teal-800: #26433e;
+
+  --color-sky-100: #d8e8f1;
+  --color-sky-700: #2e566b;
+
+  --color-violet-100: #e2dcf1;
+  --color-violet-800: #3b305c;
+
+  /* The mockup's card radius, which reaches all 66 rounded-lg sites from here.
+     Bare `rounded` compiles to a hardcoded 0.25rem and is not themeable — that
+     is fine, it is on chips and inputs where 4px is the right answer. */
+  --radius-lg: 10px;
+
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-source-serif), Georgia, serif;
+}
+
+/* Scoped to h1 and h2 deliberately: all 24 h1s and 57 of 61 h2s are real
+   headings, but most h3s in this app are small uppercase labels that a serif
+   would only make harder to read. The one h2 used as a label carries font-sans. */
+h1,
+h2 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}

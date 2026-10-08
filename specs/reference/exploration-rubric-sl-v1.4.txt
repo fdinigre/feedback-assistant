@@ -1,0 +1,224 @@
+	
+IB Mathematics: The Exploration                                /20
+
+A: Presentation
+/4
+0: The exploration does not reach the standard described by the descriptor below. 
+	•	I can't understand it.
+1: The exploration has some coherence or some organization
+	•	Some coherence - it makes sense 
+	•	Some coherence but not well organized, or some organization but not coherent.
+	•	No aim or rationale.
+	•	Key explanations missing.
+	•	Diagrams (if included) do not aid in the explanation.
+2: The exploration has some coherence and shows some organisation.
+	•	Not all of introduction, aim, rationale, conclusion included or not coherent.  
+	•	However, there exists an introduction or an aim or a rationale or a conclusion and there is some coherence
+	•	Perhaps no (or weak) conclusion and/ or introduction. 
+	•	Some mathematical and/or non mathematical explanations are missing
+	•	Clarification is needed.
+	•	Aim doesn’t “fit” the rest of the paper.
+	•	Some terms undefined
+	•	Repetitive work and/or calculations.
+	•	Tables, diagrams, graphs etc may not be explained.
+	•	The diagrams may not aid the explanation very much.
+	•	This is the highest achievement if a Q and A format is used.
+3: The exploration is coherent and well organised.
+	•	Contains clear introduction, aim, rationale, and conclusion.  The conclusion answers the aim.
+	•	Coherent - the teacher doesn't need to pause to figure out what you mean.  All diagrams, graphs and figures are appropriately placed and relevant.
+	•	
+	•	Diagrams, graphs and other forms of representations have titles and captions.
+	•	Solid introduction and conclusion
+	•	Logically developed
+	•	Easy to follow
+	•	Meets aim
+	•	A clear overall structure - with the different parts well linked to each other.
+	•	Most mathematical and/or non mathematical explanations are clear.
+	•	Aspects need clarification.
+	•	Diagrams, graphs, tables etc included, explained and aid in the exploration, and placed in the appropriate place.
+	•	Lacks conciseness (could be huge detracting tables that should be in an appendix.)
+	•	Typing errors may detract from the flow.
+	•	May include irrelevancies (hence lack of conciseness.)
+	•	References included.
+4: The exploration is coherent, well organised, and concise.
+	•	Concise - avoid repetition, (if an idea can clearly be expressed in 20 words and the student uses 100 word – this is not concise)
+	•	A concise exploration does not show irrelevant or unnecessary repetitive calculations, graphs or  descriptions.
+	•	There is proper referencing
+	•	Strong introduction (which includes the context of the exploration) and conclusion
+	•	Mathematical and/or non mathematical explanations are clear and concise.
+	•	Includes rationale (why topic chosen) and aim which is clearly identifiable.
+	•	Exploration is logically developed.
+	•	All appropriate avenues explored.
+	•	Graphs and tables are appropriately placed within the exploration, extra large tables are summarized in paper and then added in an appendix
+	•	Easy to follow (written for a peer audience)
+	•	Proper citations and referencing where appropriate.in text citations where appropriate.
+
+
+B: Mathematical Communication (includes mathematical vocabulary)
+/4
+0: The exploration does not reach the standard described by the descriptor below.
+1: The exploration contains some relevant mathematical communication which is partially appropriate. 
+	•	Poor or minimal use of notation, terminology, and/or mathematical symbols.
+	•	References to color, yet printed in black and white.
+	•	Diagrams, tables, graphs etc may be unrelated.
+	•	Missed opportunities to show mathematical language.
+	•	Missed opportunities for diagrams, tables, graphs and/ or notation 
+	•	Paper is descriptive rather than mathematical
+	•	Lack of appropriate ICT (information and communication technology) tools for the task.
+2: The exploration contains some relevant appropriate mathematical communication.
+Inconsistency of terminology and/or variables.
+	•	Missed opportunities for diagrams, tables, graphs and/ or notation 
+	•	Some key terms and variables defined
+	•	Mostly correct use of mathematical language, terminology, symbols and notation (no *, or ^) use of approximate ≈ instead of equal, appropriate use of subscripts etc.
+	•	Some appropriate use of ICT tools for the task.
+	•	Some Graphs, diagrams etc are clear and appropriately scaled (zoomed in/out) and labelled for clear communication. (ie. Some wasted space on the graph by poor choice of domain and range)
+3: The mathematical communication is relevant, appropriate and is mostly consistent. 
+	•	Key terms and variables explicitly defined.
+	•	Correct use of mathematical language, terminology, symbols and notation (no *, or ^) use of approximate ≈ instead of equal, appropriate use of subscripts etc.
+	•	Appropriate and varied forms of mathematical representation used (formulae, diagrams, tables, charts, graphs, models)
+	•	Appropriate ICT tools are used for the task (ie, spreadsheet, GDC, Geogebra, pencil and ruler, etc.)
+	•	Appropriate degrees of accuracy for situation.
+	•	Discrete versus continuous data clearly articulated if applicable.
+	•	Graphs and diagrams appropriately labelled and scaled (zoomed in/out) for clear communication.
+
+4: The mathematical communication is relevant, appropriate and consistent throughout. 
+	•	Key terms and variables explicitly defined.
+	•	Correct use of mathematical language, terminology, symbols and notation (no *, or ^) use of approximate ≈ instead of equal, appropriate use of subscripts etc.
+	•	Appropriate and varied forms of mathematical representation used (formulae, diagrams, tables, charts, graphs, models)
+	•	used a deductive method and set out proofs logically where appropriate
+
+
+C: Personal Engagement
+/3
+0: The exploration does not reach the standard described by the descriptor below.
+1: There is evidence of some personal engagement.
+	•	Student created examples may exist.
+	•	Unfamiliar math is quoted and not explained.
+	•	Unsupported mathematics.
+	•	Missed opportunities to explore.
+	•	Minimal independent thinking.
+	•	Minimal personal interest.
+2: There is evidence of significant personal engagement.   
+Significant: The student demonstrates authentic personal engagement in the exploration on a few  occasions and it is evident that these drive the exploration forward and help the reader to better understand the writer’s intentions. 
+	•	Student created examples exist.
+	•	Student explores and applies math.
+	•	Some evidence of personal interest
+	•	Some personal involvement.
+	•	Student shows independent thinking.
+	•	Some research has been undertaken.
+	•	Could be original work.
+3. There is evidence of outstanding personal engagement.
+Outstanding: The student demonstrates authentic personal engagement in the exploration in numerous  instances and they are of a high quality. It is evident that these drive the exploration forward in a creative  way. It leaves the impression that the student has developed, through their approach, a complete  understanding of the context of the exploration topic and the reader better understands the writer’s  intentions. 
+
+	•	Creates strong personal examples
+	•	Thinks mathematically creatively.  
+	•	Present mathematical ideas in your own way.
+	•	Looks for and creates mathematical models for real-world situations (if applicable)
+	•	Asks questions, makes conjectures, investigates mathematical ideas.
+	•	Research the area of interest.
+	•	Considers different perspectives (historical or global or local)
+	•	Actively explores, learns, applies and describes unfamiliar (yet appropriately challenging) mathematics.
+	•	Shows independent thinking.
+	•	Highly original work.
+	•	Shows personal ownership of the work.
+	•	Asks questions to explore and explores them.
+	•	Passion and interest is abundant in the overall read of the paper
+	•	It leaves the impression that the student has developed, through their approach, a complete understanding of the context of the exploration topic 
+
+D: Reflection	
+/3
+0: The exploration does not reach the standard described by the descriptor below.
+
+
+Some ways of showing meaningful reflection are: linking to the aims of the exploration, commenting on  what they have learned, considering some limitation or comparing different mathematical approaches. Critical reflection is reflection that is crucial, deciding or deeply insightful. It will often develop the  exploration by addressing the mathematical results and their impact on the student’s understanding of the  topic. Some ways of showing critical reflection are: considering what next, discussing implications of results,  discussing strengths and weaknesses of approaches, and considering different perspectives. Substantial evidence means that the critical reflection is present throughout the exploration. If it appears  at the end of the exploration it must be of high quality and demonstrate how it developed the exploration  in order to achieve a level 3. 
+
+1: There is evidence of limited reflection.
+	•	Very limited, simple and superficial reflection.
+	•	Simply describing results 
+	•	Some questions raised.   
+	•	Missed opportunities to reflect.
+2: There is evidence of meaningful reflection.  
+	•	Student makes connections and links to other mathematical ideas.
+	•	Some questions raised.
+	•	Comments on what they have learned
+	•	Implications of the results are considered.
+	•	Reflection on results and findings
+	•	Accuracy and reasonableness considered.
+	•	Reflection is meaningful (but not critical)
+	•	compares different mathematical approaches.
+	•	A limited discussion on possible limitations (and/or extensions, improvements)
+	•	Not enough questions are raised.  What if I did….
+	•	Some opportunities to reflect missed or not fully reflected on
+	•	Considers what the math means in context.  Reflects on the context 
+	•	Links to the aim of the exploration.
+
+3: There is substantial evidence of critical reflection. 
+	•	Critical reflection is present throughout the paper
+	•	Critical reflection is reflection that is crucial, deciding or deeply insightful.
+	•	The reflection helps develop the exploration by addressing the mathematical results and their impact on the student’s understanding of the topic
+	•	Critically considers what the math means in context.  
+	•	Consistently considers what's next.
+	•	Discusses the implications of results.
+	•	Accuracy and reasonableness considered and discussed.
+	•	Consider the significance of the findings and results.
+	•	Possible limitations (and/or extensions, improvements)
+	•	Choices of approach are considered and critically evaluated along the process.
+	•	Mathematical difficulties, problems and contradictions critically discussed.
+	•	Critical reflection on what has been learned.
+	•	Insightful questions raised.  What if I ….
+	•	reflection that is crucial, deciding or deeply insightful. 
+	•	It will often develop the exploration by addressing the mathematical results and their impact on the student’s understanding of the topic. Some ways of showing critical reflection are: considering what next, discussing implications of results, discussing strengths and weaknesses of approaches, and considering different perspectives. 
+
+
+E: Use of Mathematics	
+/6
+0: The exploration does not reach the standard described by the descriptor below.
+	•	There is no use of mathematics.
+	•	No mathematical strategy used.
+	•	Descriptive not mathematical in nature.
+1: Some relevant mathematics is used.  
+	•	Mathematics is not at SL level.
+	•	No mathematical strategy used.
+	•	There is some correct mathematics.
+2: Some relevant mathematics is used. Limited understanding is demonstrated.
+	•	Limited demonstration of understanding.
+	•	Can apply the methods without elaboration.
+	•	The mathematics is partially correct.
+	•	Can apply the method but not the deeper why.
+	•	Some connections or links made to other areas of mathematics.
+3: Relevant mathematics commensurate with the level of the course is used.  Limited understanding is demonstrated.
+Relevant refers to mathematics that supports the development of the exploration towards the completion  of its aim. Overly complicated mathematics where simple mathematics would suffice is not relevant.
+	•	Mathematics used is on SL syllabus.
+	•	Applies some problem solving techniques
+	•	Where appropriate patterns are recognized and explained.
+	•	Applies mathematics in different contexts.
+	•	Identifying links to different areas of mathematics.
+
+4:  Relevant mathematics commensurate with the level of the course is used.  The Mathematics explored is partially correct.  Some knowledge and understanding are demonstrated.
+Demonstrate means to make clear by reasoning or evidence, illustrating with examples or practical application. (More than just the correct answer.)
+	•	Some demonstration of understanding of “why”
+	•	The mathematics is partially correct.
+	•	Understanding and use of challenging mathematical concepts is demonstrated.
+	•	The student looks at a problem from a different perspective.
+	•	Some connections or links made to other areas of mathematics if appropriate
+5:  Relevant mathematics commensurate with the level of the course is used.  
+The Mathematics explored is mostly correct. Good knowledge and understanding are demonstrated.
+	•	The mathematics is mostly correct.
+	•	 Demonstration of understanding of “why”
+	•	The student has a clarity of logic and language when making mathematical arguments and calculations
+	•	The student looks at a problem from a different perspective.
+	•	Mathematics is understood.
+	•	 Demonstrated means to make clear by reasoning or evidence, illustrating with examples or practical
+	•	application - should be done in a number of areas in the exploration.
+6:  Relevant mathematics commensurate with the level of the course is used.  The mathematics explored is correct. Thorough knowledge and understanding are demonstrated.
+	•	For knowledge and understanding to be thorough it must be demonstrated throughout. Lines of reasoning  must be shown to justify steps in the mathematical development of the exploration.
+	•	Correctly explores mathematics from various perspectives or angles.
+	•	Mathematics is understood in a detailed comprehensive manner.
+	•	it needs to be completely error free
+	•	an appropriate level of accuracy at all times.
+	•	the student did not make any illogical leaps in their steps
+	•	Where appropriate patterns are recognized and explained.
+	•	Identifying links to different areas of mathematics.
+	•	no irrelevant processes used
+
+

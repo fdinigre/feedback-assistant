@@ -1,0 +1,48 @@
+#!/bin/bash
+# Thin launcher for "Feedback Assistant".
+#
+# macOS protects Desktop, Documents and Downloads. An app that isn't signed by a
+# registered Apple developer is denied access to them SILENTLY — no prompt, no
+# error the user sees; the app just exits. Terminal, being Apple-signed, is
+# allowed (and prompts properly if it ever isn't), which is why the old
+# .command files always worked from the Desktop.
+#
+# So: try to do the work directly, and if this process can't actually read the
+# project folder, hand the same script to Terminal instead. The person still
+# only ever double-clicks an icon.
+
+PROJECT="$(cd "$(dirname "$0")/../../.." && pwd)"
+export FA_PROJECT_DIR="$PROJECT"
+SCRIPT="$PROJECT/scripts/app-launch.sh"
+
+LOG_DIR="$PROJECT/logs"
+mkdir -p "$LOG_DIR" 2>/dev/null
+LOG="$LOG_DIR/stub.log"
+note() { echo "[$(date '+%F %T')] app-launch.sh: $*" >> "$LOG" 2>/dev/null; }
+note "launched; project=$PROJECT"
+
+if [ ! -e "$SCRIPT" ]; then
+  note "script missing"
+  /usr/bin/osascript -e 'tell application "System Events" to display dialog "This app has been moved out of the Feedback Assistant folder.
+
+Put it back inside that folder and try again." with title "Feedback Assistant" buttons {"OK"} default button "OK" with icon caution' >/dev/null 2>&1
+  exit 1
+fi
+
+# Probe for real read access rather than trusting the permission bits: under a
+# TCC denial the file is there and looks readable, but opening it fails.
+if head -c 1 "$SCRIPT" >/dev/null 2>&1 && head -c 1 "$PROJECT/package.json" >/dev/null 2>&1; then
+  note "direct access OK"
+  exec /bin/bash "$SCRIPT" >> "$LOG" 2>&1
+fi
+
+note "no direct access to the project folder (macOS privacy protection) — relaying through Terminal"
+if /usr/bin/open -a Terminal "$SCRIPT" 2>>"$LOG"; then
+  exit 0
+fi
+
+note "Terminal relay failed"
+/usr/bin/osascript -e 'tell application "System Events" to display dialog "macOS is blocking this app from reading the Feedback Assistant folder, and opening Terminal did not work either.
+
+Open the folder and double-click Start.command instead." with title "Feedback Assistant" buttons {"OK"} default button "OK" with icon caution' >/dev/null 2>&1
+exit 1
