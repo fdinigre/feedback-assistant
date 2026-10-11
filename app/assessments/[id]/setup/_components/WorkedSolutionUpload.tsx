@@ -19,7 +19,7 @@ export function WorkedSolutionUpload({ assessmentId }: { assessmentId: number })
       <p className="mt-1 text-sm text-slate-600">
         Upload the worked-solutions or markscheme file. A <strong>PDF</strong> is read with AI vision
         — so handwritten keys, mark boxes, and coordinate diagrams come through (takes about a
-        minute; needs you logged in to Claude). A <strong>Word (.docx)</strong> file is read locally
+        minute; needs the AI signed in). A <strong>Word (.docx)</strong> file is read locally
         as text. The result lands in the worked-solution box below for you to review and edit.
       </p>
       <form action={formAction} className="mt-3 flex flex-wrap items-center gap-3">
