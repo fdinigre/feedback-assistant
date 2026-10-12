@@ -4,8 +4,12 @@ import fs from "node:fs";
 import { revalidatePath } from "next/cache";
 import {
   deleteSubmission,
+  getReport,
   getSubmission,
   insertSubmission,
+  listGradings,
+  listTranscripts,
+  unapproveReportIfApproved,
   updateSubmission,
 } from "@/lib/db/queries";
 import { pagesDir } from "@/lib/intake/paths";
@@ -15,16 +19,42 @@ function refresh(assessmentId: number) {
   revalidatePath(`/assessments/${assessmentId}/submissions`);
 }
 
-/** Assigns (or clears) the student for a submission (spec: batch intake, assignment table). */
+/**
+ * How far a paper has got, from the work on file rather than from what was
+ * last clicked: an approved report, marks, a transcript, or none yet.
+ */
+function statusFromWork(submissionId: number): SubmissionStatus {
+  if (getReport(submissionId)?.status === "approved") return "reviewed";
+  if (listGradings(submissionId).length > 0) return "graded";
+  if (listTranscripts(submissionId).length > 0) return "transcribed";
+  return "assigned";
+}
+
+/**
+ * Assigns (or clears) the student for a submission (spec: batch intake,
+ * assignment table).
+ *
+ * Moving a paper to another student keeps its transcript and marks — they
+ * belong to the paper, not to whoever it was filed under — and so keeps its
+ * place in the pipeline. The report is the exception: it was written with the
+ * other student's MAP, CAT4 and history beside it, so an approved one goes
+ * back to draft for a second look before it is shared.
+ */
 export async function assignStudent(submissionId: number, formData: FormData) {
   const submission = getSubmission(submissionId);
   if (!submission) return;
 
   const raw = formData.get("studentId");
   const studentId = raw && raw !== "" ? Number(raw) : null;
-  const status: SubmissionStatus = studentId !== null ? "assigned" : "uploaded";
 
-  updateSubmission(submissionId, { student_id: studentId, status });
+  if (studentId === null) {
+    // Unassigned papers wait at the start; their work stays on file and comes
+    // back with them when they are assigned again.
+    updateSubmission(submissionId, { student_id: null, status: "uploaded" });
+  } else {
+    if (studentId !== submission.student_id) unapproveReportIfApproved(submissionId);
+    updateSubmission(submissionId, { student_id: studentId, status: statusFromWork(submissionId) });
+  }
   refresh(submission.assessment_id);
 }
 

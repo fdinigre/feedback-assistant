@@ -406,6 +406,10 @@ export default async function SubmissionsPage({
                                     Unassign
                                   </button>
                                 </form>
+                                <p className="basis-full text-xs text-slate-500">
+                                  The transcript and marks stay with the paper. An approved report goes
+                                  back to draft, since it was written beside the other student&apos;s data.
+                                </p>
                               </div>
                             </details>
                           </div>
