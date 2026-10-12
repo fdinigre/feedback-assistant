@@ -445,13 +445,20 @@ install_provider_cli() { # $1 provider
 # unavoidable: both CLIs sign in interactively, printing a code and waiting for
 # the browser round trip. The person still types nothing — the command is run
 # for them.
-open_signin_terminal() { # $1 cli path
-  local cli
-  cli="$(as_escape "$1")"
+open_signin_terminal() { # $1 cli path, $2 provider, $3 project dir
+  local cmd
+  if [ "${2:-}" = "gemini" ] && [ -f "${3:-}/scripts/app-signin.sh" ]; then
+    # Gemini's sign-in waits about a minute for a code pasted back from the
+    # browser, and says so nowhere; this walks the person through it.
+    cmd="/bin/bash $(printf '%q' "$3/scripts/app-signin.sh") $(printf '%q' "$1")"
+  else
+    cmd="clear; echo 'Follow the prompts to sign in, then close this window.'; echo; $(printf '%q' "$1")"
+  fi
+  cmd="$(as_escape "$cmd")"
   /usr/bin/osascript >/dev/null 2>&1 <<APPLESCRIPT || return 1
     tell application "Terminal"
       activate
-      do script "clear; echo 'Follow the prompts to sign in, then close this window.'; echo; '$cli'"
+      do script "$cmd"
     end tell
 APPLESCRIPT
 }

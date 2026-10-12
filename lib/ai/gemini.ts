@@ -63,37 +63,67 @@ export function isSchoolAccount(email: unknown): boolean {
 }
 
 /**
+ * The account `agy` signed in as, from a log it wrote. agy keeps its sign-in in
+ * the macOS Keychain and has no "who am I" command, but every run logs the
+ * account it authenticated as, e.g.
+ *   applyAuthResult: email=someone@thekaustschool.org, authMethod=consumer
+ */
+export function accountFromAgyLog(log: string): string | null {
+  const m =
+    /applyAuthResult: email=([^\s,]+@[^\s,]+)/.exec(log) ??
+    /authenticated successfully as (\S+@\S+)/.exec(log);
+  return m ? m[1] : null;
+}
+
+/**
  * Refuses unless the Google account `agy` is signed in to is a school one.
  *
- * Read from the account record the Gemini tools keep in ~/.gemini — the file is
- * rewritten at each sign-in, alongside the credentials. Fails closed: if the
- * account cannot be read, it cannot be shown to be the school's.
+ * Checked with `agy models`, which signs in and lists the models but sends no
+ * prompt, so the check itself carries nothing about any student. Not from
+ * ~/.gemini/google_accounts.json: that belongs to Google's older gemini tool,
+ * agy never writes it, and a copy left over from that tool could name a
+ * different account from the one agy is actually using.
+ *
+ * Fails closed: an account that cannot be read cannot be shown to be the
+ * school's. The answer is reused for a few minutes, since a batch of marking
+ * makes dozens of calls; the model list it returns is kept for the same calls.
  */
-function assertSchoolAccount(): void {
-  const file = path.join(os.homedir(), ".gemini", "google_accounts.json");
-  let active: unknown = null;
+const ACCOUNT_TTL_MS = 5 * 60 * 1000;
+let accountCache: { email: string; listing: string; at: number } | null = null;
+
+async function checkSchoolAccount(): Promise<string> {
+  if (accountCache && Date.now() - accountCache.at < ACCOUNT_TTL_MS) return accountCache.listing;
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-account-"));
+  let listing: string;
+  let email: string | null;
   try {
-    active = (JSON.parse(fs.readFileSync(file, "utf8")) as { active?: unknown }).active;
-  } catch {
-    // Unreadable or missing: handled below as "cannot confirm".
+    const logFile = path.join(dir, "agy.log");
+    listing = await runAgy(["--log-file", logFile, "models"], dir, "account check", 60_000);
+    email = fs.existsSync(logFile) ? accountFromAgyLog(fs.readFileSync(logFile, "utf8")) : null;
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
+
   const school = ALLOWED_GOOGLE_DOMAINS[0];
-  if (typeof active !== "string" || !active.includes("@")) {
+  if (!email) {
     throw new GeminiSetupError(
       `Couldn't confirm which Google account Gemini is signed in to, so nothing was sent. ` +
-        `Sign in again with your @${school} account (re-run Install Feedback Assistant and take the sign-in step).`,
+        `Sign in again with your @${school} account (run Install Feedback Assistant again and take the sign-in step).`,
       "wrong-account"
     );
   }
-  if (!isSchoolAccount(active)) {
-    const domain = active.split("@").pop()!.toLowerCase();
+  if (!isSchoolAccount(email)) {
+    const domain = email.split("@").pop()!.toLowerCase();
     throw new GeminiSetupError(
       `Gemini is signed in with an @${domain} account. Student work may only go through your ` +
-        `@${school} school account, so nothing was sent. Re-run Install Feedback Assistant and ` +
+        `@${school} school account, so nothing was sent. Run Install Feedback Assistant again and ` +
         `sign in with your school account.`,
       "wrong-account"
     );
   }
+  accountCache = { email, listing, at: Date.now() };
+  return listing;
 }
 
 function resolveGeminiBin(): string {
@@ -111,8 +141,8 @@ function resolveGeminiBin(): string {
   return "agy"; // fall back to PATH lookup
 }
 
-const GEMINI_BIN = resolveGeminiBin();
-const AI_LOG_DIR = path.join(process.cwd(), "data", "ai-log");
+// The automated checks point this at a throwaway folder (tests/setup.ts).
+const AI_LOG_DIR = process.env.MFA_AI_LOG_DIR || path.join(process.cwd(), "data", "ai-log");
 const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Case-insensitive, Unicode-letter-bounded search for any forbidden name. Returns the match, or null. */
@@ -133,7 +163,7 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
   const childEnv = { ...process.env };
 
   return new Promise<string>((resolve, reject) => {
-    const child = spawn(GEMINI_BIN, args, { cwd, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(resolveGeminiBin(), args, { cwd, env: childEnv, stdio: ["ignore", "pipe", "pipe"] });
 
     let stdout = "";
     let stderr = "";
@@ -183,8 +213,8 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
         reject(
           isAuth
             ? new GeminiSetupError(
-                "AI is unavailable: Google's Antigravity command (agy) isn't signed in on this computer. " +
-                  "Open Terminal, run `agy`, and sign in once with your Google account — then try again. " +
+                "AI is unavailable: Gemini isn't signed in on this computer. Run Install Feedback Assistant " +
+                  "again and take the sign-in step, with your school Google account — then try again. " +
                   "Everything else works without it.",
                 "not-signed-in"
               )
@@ -222,7 +252,7 @@ export function pickGeminiModel(listing: string): string | null {
 const MODEL_TTL_MS = 60 * 60 * 1000; // re-read the list hourly; the server runs for days
 let modelCache: { slug: string; at: number } | null = null;
 
-async function geminiModel(): Promise<string> {
+async function geminiModel(listing: string): Promise<string> {
   const pinned = process.env.MFA_GEMINI_MODEL?.trim();
   if (pinned) {
     if (!/^gemini-/.test(pinned)) {
@@ -234,7 +264,6 @@ async function geminiModel(): Promise<string> {
     return pinned;
   }
   if (modelCache && Date.now() - modelCache.at < MODEL_TTL_MS) return modelCache.slug;
-  const listing = await runAgy(["models"], os.tmpdir(), "models", 60_000);
   const slug = pickGeminiModel(listing);
   if (!slug) {
     throw new Error(
@@ -271,8 +300,8 @@ export async function runGemini(opts: RunClaudeOptions): Promise<string> {
   }
   // Before anything is logged: the wrong Google account, a Mac without agy, or
   // one without a Gemini model, stops here.
-  assertSchoolAccount();
-  const model = await geminiModel();
+  const listing = await checkSchoolAccount();
+  const model = await geminiModel(listing);
 
   if (!fs.existsSync(AI_LOG_DIR)) {
     fs.mkdirSync(AI_LOG_DIR, { recursive: true });

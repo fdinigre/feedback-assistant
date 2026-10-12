@@ -24,9 +24,17 @@ one line you copy from here.
 
 3. Windows will ask you a few questions. The middle part is slow and looks like
    nothing is happening. Leave it alone.
-4. At the end it offers to sign you in. A terminal window opens and runs the
-   sign-in for you: follow the prompts in your browser, **choose your
-   @thekaustschool.org account**, then close that window.
+4. At the end it offers to sign you in to Gemini. A terminal window opens and
+   walks you through it:
+   - your browser opens a Google page — **choose your @thekaustschool.org
+     account** and allow access;
+   - the page shows a **code** — copy it;
+   - go back to the terminal window, press **⌘V** to paste it, and press
+     **Return**. The window does not update by itself; it is waiting for the
+     paste.
+
+   You have about a minute for that. If it runs out, it starts again on its
+   own. At the end it tells you which account you're signed in with.
 
 It installs into a **Feedback Assistant** folder in your home folder and opens
 that folder when it's done. Drag the **Feedback Assistant** icon to the Dock if
@@ -117,7 +125,12 @@ Downloads — your home folder, say — avoids this entirely.
 ## If something else goes wrong
 
 **The app says Gemini is signed in with the wrong account.** Run the installer
-again (below) and, at the sign-in step, choose your @thekaustschool.org account.
+again and take the sign-in step; it shows how to sign out and sign back in with
+your @thekaustschool.org account.
+
+**The sign-in says it failed.** Usually the minute ran out before the code was
+pasted. Run Install Feedback Assistant again and take the sign-in step — it is
+safe to repeat, and the second time is quicker.
 
 **The app says the AI is unavailable.** The sign-in didn't complete. Double-click
 **Install Feedback Assistant** and run it again — it's safe to repeat and

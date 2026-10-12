@@ -122,11 +122,11 @@ if [ -n "$CLI_PATH" ]; then
   log "cli at $CLI_PATH"
   answer="$(choose "Almost done.
 
-One last step: sign in to $PROVIDER_LABEL. A terminal window will open and run the sign-in for you — just follow the prompts in your browser, then close that window.$SIGNIN_NOTE
+One last step: sign in to $PROVIDER_LABEL. A terminal window will open and walk you through it: your browser shows a code, and you paste it back into that window.$SIGNIN_NOTE
 
 You can also do this later; the app works without it, but the AI marking won't." "Skip for now" "Sign in now")"
   if [ "$answer" = "Sign in now" ]; then
-    open_signin_terminal "$CLI_PATH" || say "I couldn't open the sign-in window automatically.
+    open_signin_terminal "$CLI_PATH" "$PROVIDER" "$PROJECT_DIR" || say "I couldn't open the sign-in window automatically.
 
 Open Terminal and run:  $CLI_PATH" caution
   fi

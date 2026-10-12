@@ -31,7 +31,8 @@ function resolveClaudeBin(): string {
 }
 
 const CLAUDE_BIN = resolveClaudeBin();
-const AI_LOG_DIR = path.join(process.cwd(), "data", "ai-log");
+// The automated checks point this at a throwaway folder (tests/setup.ts).
+const AI_LOG_DIR = process.env.MFA_AI_LOG_DIR || path.join(process.cwd(), "data", "ai-log");
 const TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 /** Case-insensitive, Unicode-letter-bounded search for any forbidden name. Returns the match, or null. */
