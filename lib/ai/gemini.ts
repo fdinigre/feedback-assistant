@@ -275,6 +275,16 @@ async function geminiModel(listing: string): Promise<string> {
   return slug;
 }
 
+/**
+ * Put before every prompt. agy is a coding agent: given a long task it may
+ * decide to run a command or write a file, which print mode refuses, ending the
+ * run with nothing said. The app only ever wants the answer itself.
+ */
+const ANSWER_DIRECTLY =
+  "You are being used as a plain text model inside another application. Give your whole answer " +
+  "directly in your reply. Do not run commands, create or edit files, search, or use any other " +
+  "tool — except reading the image files named at the end, when there are any.";
+
 export async function runGemini(opts: RunClaudeOptions): Promise<string> {
   // opts.model is a Claude alias ("haiku") and is ignored here: passing it on
   // could only name a model this backend refuses to use.
@@ -317,9 +327,8 @@ export async function runGemini(opts: RunClaudeOptions): Promise<string> {
       return dest;
     });
     const fullPrompt =
-      pages.length > 0
-        ? `${prompt}\n\n${pages.map((p) => `Read the image file at ${p}`).join("\n")}`
-        : prompt;
+      `${ANSWER_DIRECTLY}\n\n${prompt}` +
+      (pages.length > 0 ? `\n\n${pages.map((p) => `Read the image file at ${p}`).join("\n")}` : "");
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
     const baseName = `${timestamp}-${purpose}`;
@@ -344,7 +353,21 @@ export async function runGemini(opts: RunClaudeOptions): Promise<string> {
     args.push("-p", fullPrompt);
 
     // A little past agy's own --print-timeout, so its message wins when it can.
-    const response = await runAgy(args, workspace, purpose, TIMEOUT_MS + 30_000);
+    let response = await runAgy(args, workspace, purpose, TIMEOUT_MS + 30_000);
+    // agy is an agent. If it reaches for a command anyway, print mode refuses
+    // the command and the run ends with no reply at all — which surfaced as a
+    // baffling "no '{' found" from the JSON reader. Once more, then say so.
+    if (!response.trim()) {
+      response = await runAgy(args, workspace, `${purpose} (retry after empty reply)`, TIMEOUT_MS + 30_000);
+    }
+    if (!response.trim()) {
+      fs.writeFileSync(responseFile, "", "utf-8");
+      updateAiRequestResponse(aiRequest.id, responseFile);
+      throw new Error(
+        "Gemini sent back an empty reply twice (it tried to run a command instead of answering). " +
+          "Nothing was changed — try again in a moment."
+      );
+    }
 
     // 4. Save the response and update the ai_requests row.
     fs.writeFileSync(responseFile, response, "utf-8");
