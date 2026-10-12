@@ -146,8 +146,23 @@ export default async function AssessmentSetupPage({
         )}
       </div>
 
-      {/* Name mask */}
+      {/* The blank test comes first: it fills the question list in, and the
+          name mask is far easier to place once its pages can be previewed. */}
       <section className="mt-8">
+        <h2 className="text-lg font-semibold text-slate-900">Blank test</h2>
+        {assessment.paper_file && (
+          <p className="mt-1 text-sm text-emerald-700">
+            A blank test is uploaded ({/\.docx$/i.test(assessment.paper_file) ? "Word" : "PDF"}). Upload
+            again to replace it; questions already in the list are kept.
+          </p>
+        )}
+        <div className="mt-3">
+          <PaperAutofill assessmentId={assessmentId} />
+        </div>
+      </section>
+
+      {/* Name mask */}
+      <section className="mt-10">
         <h2 className="text-lg font-semibold text-slate-900">Name mask</h2>
         <p className="mt-1 text-sm text-slate-600">
           Defines the region blacked out before a scan is sent to the AI. Page 1 is required; add a
@@ -178,15 +193,11 @@ export default async function AssessmentSetupPage({
         </div>
         {fmTest && (
           <p className="mt-1 text-sm text-slate-600">
-            Scored as points out of {totalPoints}. Upload the blank test to fill the list in, then
-            propose the answer key below. &ldquo;Applies to&rdquo; lets a question belong only to
+            Scored as points out of {totalPoints}. Upload the blank test above to fill the list in,
+            then propose the answer key below. &ldquo;Applies to&rdquo; lets a question belong only to
             the standard or the modified version of the test.
           </p>
         )}
-
-        <div className="mt-4">
-          <PaperAutofill assessmentId={assessmentId} />
-        </div>
 
         <div className="mt-4 space-y-3">
           {questions.map((q, idx) => {
