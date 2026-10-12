@@ -1,6 +1,7 @@
 # Feedback Assistant — setting it up
 
-You do this once. It takes about five minutes and you won't type anything.
+You do this once. It takes about five minutes, and the only thing you type is
+one line you copy from here.
 
 ## Before you start
 
@@ -14,20 +15,40 @@ You do this once. It takes about five minutes and you won't type anything.
 
 ## Setting it up
 
-1. Put the **Feedback Assistant** folder wherever you like — the Desktop is
-   fine. Keep everything inside it together.
-2. **Right-click** the **Install Feedback Assistant** icon and choose **Open**.
-   Then click **Open** again in the box that appears.
-3. Follow the prompts. The middle part is slow and looks like nothing is
-   happening. Leave it alone.
+1. Open **Terminal** (press ⌘-Space, type `Terminal`, press Return).
+2. Copy this line, paste it into Terminal, and press Return:
+
+   ```
+   curl -fsSL https://raw.githubusercontent.com/fdinigre/feedback-assistant/main/scripts/get.sh | bash
+   ```
+
+3. Windows will ask you a few questions. The middle part is slow and looks like
+   nothing is happening. Leave it alone.
 4. At the end it offers to sign you in. A terminal window opens and runs the
    sign-in for you: follow the prompts in your browser, **choose your
    @thekaustschool.org account**, then close that window.
 
-> **Why right-click the first time?** This app didn't come from the App Store,
-> so macOS blocks a plain double-click and offers no way past it. Right-click →
-> Open is the same action with a button that lets you continue. Once per icon,
-> the first time only.
+It installs into a **Feedback Assistant** folder in your home folder and opens
+that folder when it's done. Drag the **Feedback Assistant** icon to the Dock if
+you like.
+
+> **Why Terminal, and not "Download ZIP"?** A web browser marks everything it
+> downloads, and macOS then refuses to open the app's icons ("Apple could not
+> verify…") because they aren't signed with a paid Apple developer account.
+> Getting past that on a school Mac needs an administrator. Downloading through
+> Terminal doesn't mark anything, so the icons just open — no administrator
+> needed.
+
+### If you already have the folder
+
+If you downloaded the ZIP or a colleague sent you the folder, and macOS says it
+"could not verify" the app, you can clear that yourself without an
+administrator:
+
+1. Open **Terminal**.
+2. Type `xattr -dr com.apple.quarantine ` (with the space at the end), drag the
+   **Feedback Assistant** folder onto the Terminal window, and press Return.
+3. Double-click **Install Feedback Assistant**.
 
 ## Using it day to day
 
@@ -82,8 +103,6 @@ Your classes, students, scans, marks and reports are never touched by an
 update. If an update ever fails to install, the previous version is put back
 automatically.
 
-The first time, right-click the icon and choose **Open**, as with the others.
-
 ## If an icon seems to do nothing
 
 macOS protects the Desktop, Documents and Downloads folders, and it refuses
@@ -100,8 +119,8 @@ Downloads — your home folder, say — avoids this entirely.
 **The app says Gemini is signed in with the wrong account.** Run the installer
 again (below) and, at the sign-in step, choose your @thekaustschool.org account.
 
-**The app says the AI is unavailable.** The sign-in didn't complete. Right-click
-**Install Feedback Assistant** → Open and run it again — it's safe to repeat and
+**The app says the AI is unavailable.** The sign-in didn't complete. Double-click
+**Install Feedback Assistant** and run it again — it's safe to repeat and
 won't touch your `data` folder. Take the sign-in step this time.
 
 **Anything else.** Every icon writes to the `logs` folder inside the Feedback

@@ -70,6 +70,8 @@ answer="$(choose "Done — a clean copy is on your Desktop ($SIZE).
 
 Checked and confirmed: no student data, no database, no scans, no signed-in account.
 
-Give your colleague the zip file, and tell them to open 'Install Feedback Assistant' inside it once." "Done" "Show me")"
+Easier still: send them the one line in SETUP - START HERE.md to paste into Terminal. It downloads the app in a way macOS does not block.
+
+If you send the zip, macOS may say it 'could not verify' the app; the guide's section 'If you already have the folder' clears that without an administrator." "Done" "Show me")"
 [ "$answer" = "Show me" ] && { /usr/bin/open -R "$ZIP" 2>/dev/null || /usr/bin/open -R "$DEST" 2>/dev/null; }
 exit 0

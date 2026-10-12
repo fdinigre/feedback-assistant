@@ -14,12 +14,21 @@ student work.
 
 ## Getting it
 
-1. On this page, click **Code → Download ZIP**, and unzip it. (Or use the copy a
-   colleague gave you.)
-2. Open **SETUP - START HERE.md** in the folder and follow it. It takes about
-   five minutes, needs no administrator password, and you won't type anything.
-3. At the end, sign in with your **@thekaustschool.org** account — not a
-   personal Gmail.
+Open **Terminal** on your Mac (⌘-Space, type `Terminal`, Return), paste this
+line and press Return:
+
+```
+curl -fsSL https://raw.githubusercontent.com/fdinigre/feedback-assistant/main/scripts/get.sh | bash
+```
+
+It downloads the app into a **Feedback Assistant** folder in your home folder
+and sets it up — about five minutes, no administrator password. At the end,
+sign in with your **@thekaustschool.org** account, not a personal Gmail. The
+full guide is in **SETUP - START HERE.md**.
+
+Please don't use **Code → Download ZIP**: macOS blocks apps downloaded through
+a browser ("Apple could not verify…"), and only an administrator can let them
+through. Downloading through Terminal avoids that.
 
 From then on, open the app with the **Feedback Assistant** icon, and get new
 versions with **Update Feedback Assistant**. Updates never touch your classes,
