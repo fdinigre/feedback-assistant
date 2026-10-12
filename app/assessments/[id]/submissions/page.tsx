@@ -374,30 +374,45 @@ export default async function SubmissionsPage({
                         );
                       })}
 
-                      <form action={assignStudent.bind(null, s.id)} className="mt-3 flex items-center gap-2">
-                        <select
-                          name="studentId"
-                          defaultValue={s.student_id ?? ""}
-                          className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                        >
-                          <option value="">— unassigned —</option>
-                          {classGroups.map((group) => (
-                            <optgroup key={group.cls.id} label={group.cls.name}>
-                              {group.students.map((student) => (
-                                <option key={student.id} value={student.id}>
-                                  {student.name}
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
-                        </select>
-                        <button
-                          type="submit"
-                          className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-100"
-                        >
-                          Assign
-                        </button>
-                      </form>
+                      {/* Keyed on the student so the controls start fresh after an
+                          assignment: React resets a submitted form to the values it
+                          was first drawn with, which showed an assigned paper as
+                          unassigned until the page was reloaded. */}
+                      <div key={s.student_id ?? "none"} className="mt-3">
+                        {student ? (
+                          <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+                            <p className="py-1 text-sm text-slate-700">
+                              Assigned to{" "}
+                              <Link
+                                href={`/students/${student.id}`}
+                                className="font-semibold text-slate-900 underline-offset-2 hover:underline"
+                              >
+                                {student.name}
+                              </Link>
+                              <span className="text-slate-500"> · {student.className}</span>
+                            </p>
+                            <details className="group">
+                              <summary className="inline-block cursor-pointer list-none rounded-md border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-100 group-open:bg-slate-100">
+                                Change
+                              </summary>
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <AssignForm submissionId={s.id} current={s.student_id} classGroups={classGroups} />
+                                <form action={assignStudent.bind(null, s.id)}>
+                                  <input type="hidden" name="studentId" value="" />
+                                  <button
+                                    type="submit"
+                                    className="rounded-md px-2 py-1 text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                  >
+                                    Unassign
+                                  </button>
+                                </form>
+                              </div>
+                            </details>
+                          </div>
+                        ) : (
+                          <AssignForm submissionId={s.id} current={null} classGroups={classGroups} />
+                        )}
+                      </div>
 
                       {showReview && (
                         <Link
@@ -566,5 +581,43 @@ function ScratchPagesPanel({
         </button>
       </form>
     </details>
+  );
+}
+
+/** The student picker: every class's roster, grouped by class. */
+function AssignForm({
+  submissionId,
+  current,
+  classGroups,
+}: {
+  submissionId: number;
+  current: number | null;
+  classGroups: { cls: { id: number; name: string }; students: StudentRow[] }[];
+}) {
+  return (
+    <form action={assignStudent.bind(null, submissionId)} className="flex items-center gap-2">
+      <select
+        name="studentId"
+        defaultValue={current ?? ""}
+        className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+      >
+        <option value="">— choose a student —</option>
+        {classGroups.map((group) => (
+          <optgroup key={group.cls.id} label={group.cls.name}>
+            {group.students.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name}
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <button
+        type="submit"
+        className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-100"
+      >
+        Assign
+      </button>
+    </form>
   );
 }
