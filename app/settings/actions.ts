@@ -8,8 +8,10 @@ import {
   getAiRequest,
   insertStyleExample,
   listStyleExamples,
+  setAppSetting,
 } from "@/lib/db/queries";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
+import { EFFORT_SETTING_KEY, parseEffort, type EffortKind } from "@/lib/ai/effort";
 
 export type StyleExampleFormState = { error: string | null };
 
@@ -75,4 +77,13 @@ export async function readAiRequestPrompt(id: number): Promise<PromptFileResult>
   } catch {
     return { error: "Could not read the prompt file — it may have been moved or deleted." };
   }
+}
+
+/** Saves how hard Gemini thinks for one kind of work (see lib/ai/effort.ts). */
+export async function saveEffortAction(kind: EffortKind, value: string): Promise<{ error: string | null }> {
+  const effort = parseEffort(value);
+  if (!effort || !(kind in EFFORT_SETTING_KEY)) return { error: "That isn't an effort level." };
+  setAppSetting(EFFORT_SETTING_KEY[kind], effort);
+  revalidatePath("/settings");
+  return { error: null };
 }

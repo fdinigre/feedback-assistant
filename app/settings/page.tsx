@@ -1,4 +1,5 @@
 import {
+  getAppSetting,
   getIaChecklist,
   listAiRequests,
   listAllMarkingInstructions,
@@ -10,6 +11,8 @@ import { MarkingInstructionsSection } from "./_components/MarkingInstructionsSec
 import { IaChecklistSection } from "./_components/IaChecklistSection";
 import { AiRequestLog } from "./_components/AiRequestLog";
 import { aiProvider } from "@/lib/ai/provider";
+import { EffortSection } from "./_components/EffortSection";
+import { EFFORT_DEFAULTS, EFFORT_SETTING_KEY, parseEffort } from "@/lib/ai/effort";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +24,10 @@ export default function SettingsPage() {
   const markingInstructions = listAllMarkingInstructions();
   const assessmentTitles = Object.fromEntries(listAssessments().map((a) => [a.id, a.title]));
   const iaChecklist = getIaChecklist();
+  const effort = {
+    studentWork: parseEffort(getAppSetting(EFFORT_SETTING_KEY.studentWork)) ?? EFFORT_DEFAULTS.studentWork,
+    setup: parseEffort(getAppSetting(EFFORT_SETTING_KEY.setup)) ?? EFFORT_DEFAULTS.setup,
+  };
 
   return (
     <div className="space-y-10">
@@ -36,6 +43,8 @@ export default function SettingsPage() {
       <MarkingInstructionsSection rows={markingInstructions} assessmentTitles={assessmentTitles} />
 
       <IaChecklistSection checklist={iaChecklist} />
+
+      <EffortSection current={effort} onGemini={aiProvider() === "gemini"} />
 
       <section>
         <h2 className="text-lg font-medium">AI request log</h2>

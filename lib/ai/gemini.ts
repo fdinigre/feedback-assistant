@@ -4,7 +4,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { insertAiRequest, updateAiRequestResponse } from "@/lib/db/queries";
+import { getAppSetting, insertAiRequest, updateAiRequestResponse } from "@/lib/db/queries";
+import { EFFORT_DEFAULTS, EFFORT_SETTING_KEY, effortKindOf, parseEffort, type Effort } from "@/lib/ai/effort";
 import { nameRegex } from "@/lib/pipeline/guards";
 import type { RunClaudeOptions } from "@/lib/ai/claude";
 
@@ -228,13 +229,13 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
 }
 
 /**
- * The newest Flash at high effort, from lines like
- * "gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)". Any Gemini model if no
- * Flash is listed; null if no Gemini model is. Read from `agy models` rather
- * than written here because Google renames these often, and `agy -p` fails
- * outright on a name it does not know.
+ * The newest Flash at the given effort, from lines like
+ * "gemini-3.8-flash-high<TAB>Gemini 3.8 Flash (High)". Falls back to the newest
+ * Flash at high effort, then to any Gemini model; null if no Gemini model is
+ * listed. Read from `agy models` rather than written here because Google
+ * renames these often, and `agy -p` fails outright on a name it does not know.
  */
-export function pickGeminiModel(listing: string): string | null {
+export function pickGeminiModel(listing: string, effort: Effort = "high"): string | null {
   const slugs = listing
     .split("\n")
     .map((line) => line.trim().split(/\s+/)[0] ?? "")
@@ -243,16 +244,18 @@ export function pickGeminiModel(listing: string): string | null {
     const m = slug.match(/^gemini-(\d+)\.(\d+)-/);
     return m ? Number(m[1]) * 1000 + Number(m[2]) : -1;
   };
-  const flash = slugs
-    .filter((slug) => /-flash-high$/.test(slug))
-    .sort((a, b) => version(b) - version(a));
-  return flash[0] ?? slugs[0] ?? null;
+  const newestFlash = (level: Effort) =>
+    slugs.filter((slug) => slug.endsWith(`-flash-${level}`)).sort((a, b) => version(b) - version(a))[0];
+  return newestFlash(effort) ?? newestFlash("high") ?? slugs[0] ?? null;
 }
 
-const MODEL_TTL_MS = 60 * 60 * 1000; // re-read the list hourly; the server runs for days
-let modelCache: { slug: string; at: number } | null = null;
+/** The effort set in Settings for this kind of request, or its default. */
+function effortFor(purpose: string): Effort {
+  const kind = effortKindOf(purpose);
+  return parseEffort(getAppSetting(EFFORT_SETTING_KEY[kind])) ?? EFFORT_DEFAULTS[kind];
+}
 
-async function geminiModel(listing: string): Promise<string> {
+async function geminiModel(listing: string, effort: Effort): Promise<string> {
   const pinned = process.env.MFA_GEMINI_MODEL?.trim();
   if (pinned) {
     if (!/^gemini-/.test(pinned)) {
@@ -263,15 +266,13 @@ async function geminiModel(listing: string): Promise<string> {
     }
     return pinned;
   }
-  if (modelCache && Date.now() - modelCache.at < MODEL_TTL_MS) return modelCache.slug;
-  const slug = pickGeminiModel(listing);
+  const slug = pickGeminiModel(listing, effort);
   if (!slug) {
     throw new Error(
       "AI is unavailable: Antigravity (agy) offers no Gemini model to this account, and this backend " +
         "will not use any other. Nothing was sent."
     );
   }
-  modelCache = { slug, at: Date.now() };
   return slug;
 }
 
@@ -311,7 +312,7 @@ export async function runGemini(opts: RunClaudeOptions): Promise<string> {
   // Before anything is logged: the wrong Google account, a Mac without agy, or
   // one without a Gemini model, stops here.
   const listing = await checkSchoolAccount();
-  const model = await geminiModel(listing);
+  const model = await geminiModel(listing, effortFor(purpose));
 
   if (!fs.existsSync(AI_LOG_DIR)) {
     fs.mkdirSync(AI_LOG_DIR, { recursive: true });
