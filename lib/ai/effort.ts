@@ -35,6 +35,8 @@ const SETUP_PURPOSES = new Set([
   "myp-paper-vision",
   "myp-paper-extract",
   "myp-worked-solutions-vision",
+  "task-document-vision",
+  "task-document-rubrics",
   "fm-propose-key",
   "ms-parse",
   "dp-match-targets",

@@ -87,8 +87,10 @@ out to be read, so it is worth knowing exactly what goes:
   assessment's **Name mask** section.
 - Every request is recorded in the app under **Settings → AI request log**, so
   you can see what was sent.
-- It only goes through your school Google account. If Gemini is signed in with
-  any other account, the app stops before sending and tells you.
+- On Gemini, it only goes through your school Google account. If Gemini is
+  signed in with any other account, the app stops before sending and tells you.
+  If you switch to Claude in **Settings → AI**, it goes to your own Claude
+  account instead, with the same codes and masking.
 
 Two honest limits: only the pages you mask are hidden, so keep names off any
 unmasked page; and the name guard checks text, not the pixels inside scans.
@@ -127,6 +129,13 @@ Downloads — your home folder, say — avoids this entirely.
 **The app says Gemini is signed in with the wrong account.** Run the installer
 again and take the sign-in step; it shows how to sign out and sign back in with
 your @thekaustschool.org account.
+
+**The app says Gemini's usage limit has been reached.** Gemini's free
+allowance is weekly, and the message says when it resets. To keep marking
+before then, open **Settings → AI** and choose Claude. That needs your own
+Claude Pro or Max account; if Claude isn't installed yet, Settings shows the two
+Terminal lines that install it and sign you in. Switch back to Gemini once the
+limit resets.
 
 **The sign-in says it failed.** Usually the minute ran out before the code was
 pasted. Run Install Feedback Assistant again and take the sign-in step — it is

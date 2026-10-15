@@ -6,9 +6,10 @@ import {
   listStudents,
   listSubmissions,
 } from "@/lib/db/queries";
-import type { AssessmentRow, QuestionRow, StudentRow } from "@/lib/types";
+import type { AssessmentRow, DpGradingQuestion, QuestionRow, StudentRow } from "@/lib/types";
 import { questionsForStudent } from "@/lib/assessment/course";
-import { labelToQuestionNumber, type ParsedMarksSheet } from "./parse";
+import { pickFinal, sumQuestionMarks, sumSubpartMarks } from "@/lib/submissions/dp-calc";
+import { canonicalPart, dpLabelTarget, labelToQuestionNumber, type ParsedMarksSheet } from "./parse";
 
 /**
  * Compares a marks spreadsheet against the marks already in the app and
@@ -21,6 +22,8 @@ export type MarkChange = {
   studentName: string;
   questionId: number;
   questionNumber: string;
+  /** The DP markscheme part the column marks ("a", "b.ii"); '' for the whole question. */
+  part: string;
   label: string;
   maxPoints: number;
   /** What the app currently has (teacher override if set, else the AI's mark). */
@@ -46,6 +49,8 @@ export type MarksDiff = {
   /** Sheet rows matching a student who has no submission to mark. */
   withoutSubmission: string[];
   ignoredColumns: string[];
+  /** Question columns read as subtotals, because the sheet also marks that question's parts (DP). */
+  subtotalColumns: string[];
   /** Papers the sheet has a row for, whether or not anything on them differs. */
   coveredSubmissions: number[];
 };
@@ -59,9 +64,87 @@ function effectivePoints(content: { finalPoints: number | null; conservativePoin
   return content.finalPoints ?? content.conservativePoints;
 }
 
+/** What one sheet column marks: a question, or one part of it. */
+type Target = { question: QuestionRow; part: string; maxPoints: number };
+
+/**
+ * How a programme's sheet columns map onto its questions, and what the app has
+ * for each. MYP marks whole questions (its sub-parts are questions of their own,
+ * "4a"); a Diploma paper keeps its parts inside one question, so its columns can
+ * mark the question (Q2) or one part of it (Q1a, Q5b(ii)).
+ */
+type Resolver = {
+  target: (label: string) => Target | null;
+  /** Whole-question columns read as subtotals because the sheet also marks their parts. */
+  subtotals: string[];
+  current: (submissionId: number, target: Target) => number | null;
+};
+
+/**
+ * What the app has now for one question — or, on a Diploma paper, one part of it
+ * ('' is the whole question): the teacher's mark where one is set, else the AI's.
+ * Null when the app hasn't marked it. The comparison and the settled list both read
+ * marks through this, so they can never disagree about what "the app's mark" is.
+ */
+export function currentMark(
+  assessment: Pick<AssessmentRow, "programme">,
+  question: QuestionRow,
+  part: string,
+  submissionId: number
+): number | null {
+  const content = listGradings(submissionId).find((g) => g.question_id === question.id)?.content;
+  if (!content) return null;
+  if (assessment.programme !== "DP") return effectivePoints(content);
+  const dp = content as unknown as DpGradingQuestion;
+  return part === ""
+    ? sumQuestionMarks(dp, question.dp_scheme, pickFinal)
+    : sumSubpartMarks(dp, question.dp_scheme, part, pickFinal);
+}
+
+function mypResolver(questions: QuestionRow[]): Resolver {
+  const byNumber = new Map(questions.map((q) => [q.number.trim().toLowerCase(), q]));
+  return {
+    target(label) {
+      const question = byNumber.get(labelToQuestionNumber(label));
+      return question ? { question, part: "", maxPoints: question.max_points } : null;
+    },
+    subtotals: [],
+    current: (submissionId, target) => currentMark({ programme: "MYP" }, target.question, "", submissionId),
+  };
+}
+
+function dpResolver(questions: QuestionRow[], labels: string[]): Resolver {
+  const byNumber = new Map(questions.map((q) => [q.number.trim().toLowerCase(), q]));
+  const targetOf = (label: string): Target | null => {
+    const t = dpLabelTarget(label);
+    const question = t ? byNumber.get(t.number) : undefined;
+    if (!t || !question) return null;
+    if (t.part === "") return { question, part: "", maxPoints: question.max_points };
+    const subpart = question.dp_scheme?.subparts.find((sp) => canonicalPart(sp.label) === t.part);
+    return subpart ? { question, part: subpart.label, maxPoints: subpart.maxMarks } : null;
+  };
+  // A sheet that marks a question's parts and also has a column for the question
+  // carries that column as a subtotal; comparing both would count the parts twice.
+  const withParts = new Set(
+    labels.map(targetOf).filter((t): t is Target => !!t && t.part !== "").map((t) => t.question.id)
+  );
+  const subtotals = labels.filter((label) => {
+    const t = targetOf(label);
+    return !!t && t.part === "" && withParts.has(t.question.id);
+  });
+  return {
+    target: (label) => (subtotals.includes(label) ? null : targetOf(label)),
+    subtotals,
+    current: (submissionId, target) => currentMark({ programme: "DP" }, target.question, target.part, submissionId),
+  };
+}
+
 export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksSheet): MarksDiff {
   const questions = listQuestions(assessment.id);
-  const questionByNumber = new Map(questions.map((q) => [q.number.trim().toLowerCase(), q]));
+  const resolver =
+    assessment.programme === "DP"
+      ? dpResolver(questions, sheet.questionLabels)
+      : mypResolver(questions);
 
   // Only this assessment's class can be marked by this sheet.
   const roster = assessment.class_id !== null ? listStudents(assessment.class_id) : listStudents();
@@ -80,7 +163,7 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
   let unchanged = 0;
 
   const unmatchedLabels = sheet.questionLabels.filter(
-    (label) => !questionByNumber.has(labelToQuestionNumber(label))
+    (label) => !resolver.subtotals.includes(label) && !resolver.target(label)
   );
 
   for (const row of sheet.rows) {
@@ -98,19 +181,17 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
     }
     coveredSubmissions.push(submission.id);
 
-    const gradingByQuestion = new Map(listGradings(submission.id).map((g) => [g.question_id, g]));
-
     for (const [label, mark] of row.marks) {
-      const question = questionByNumber.get(labelToQuestionNumber(label));
-      if (!question) continue; // reported via unmatchedLabels
+      const target = resolver.target(label);
+      if (!target) continue; // reported via unmatchedLabels, or a subtotal
+      const { question } = target;
       // A question this student does not sit (the other version of the test)
       // is not a difference, whatever the cell says.
       if (!sitsQuestion(question, student)) continue;
 
       // A blank cell means the student scored nothing on that question.
       const incoming = mark ?? 0;
-      const grading = gradingByQuestion.get(question.id);
-      const current = grading ? effectivePoints(grading.content) : null;
+      const current = resolver.current(submission.id, target);
 
       if (current !== null && current === incoming) {
         unchanged++;
@@ -122,12 +203,13 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
         studentName: student.name,
         questionId: question.id,
         questionNumber: question.number,
+        part: target.part,
         label,
-        maxPoints: question.max_points,
+        maxPoints: target.maxPoints,
         current,
         incoming,
         fromBlank: mark === null,
-        overMax: incoming > question.max_points,
+        overMax: incoming > target.maxPoints,
       });
     }
   }
@@ -144,6 +226,7 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
     missingFromSheet,
     withoutSubmission,
     ignoredColumns: sheet.ignoredColumns,
+    subtotalColumns: resolver.subtotals,
     coveredSubmissions,
   };
 }

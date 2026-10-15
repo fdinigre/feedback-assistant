@@ -13,9 +13,12 @@ import {
   upsertTranscript,
 } from "@/lib/db/queries";
 import type { Programme, QuestionRow, SubmissionRow, TranscriptQuestion } from "@/lib/types";
-import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
+import { getForbiddenNames, nameRegex, scrubOutput } from "@/lib/pipeline/guards";
+import { extractPdfPageTexts } from "@/lib/assessment/extract-text";
+import { resolveStoredPath } from "@/lib/assessment/file-paths";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { reconcileSubParts } from "@/lib/pipeline/subparts";
+import { omitCrossedOut } from "@/lib/submissions/transcript-edits";
 
 const PAGES_ROOT = path.join(process.cwd(), "data", "pages");
 
@@ -29,23 +32,30 @@ export type TranscribeResult = {
  * Resolves the absolute image paths to send for a submission.
  * - Page 1 is ALWAYS the masked variant (page-1-masked.png). If the masked file
  *   is missing we throw rather than fall back to the unmasked page-1.png — the
- *   handwritten name must never reach the cloud (hard privacy rule).
- * - Scratch pages ARE sent and transcribed (spec: viewable, not graded): work found
- *   only on a scratch page is prefixed "[scratch] " so grading can skip it.
+ *   handwritten name must never reach the cloud (hard privacy rule) — unless the
+ *   teacher has said this assessment's papers carry no names (requireMask false).
+ * - Pages the teacher marked as scratch are NOT sent (see pageImagesToSend).
  */
-function resolvePageImages(submission: SubmissionRow): string[] {
+function resolvePageImages(submission: SubmissionRow, requireMask: boolean): string[] {
   const dir = path.join(PAGES_ROOT, String(submission.id));
   if (!fs.existsSync(dir)) {
     throw new Error(
       `transcribe: no rasterized pages found at ${dir} for submission ${submission.id}`
     );
   }
+  return pageImagesToSend(dir, submission.scratch_pages ?? [], requireMask);
+}
 
-  // Pages the teacher marked as scratch are NOT sent to the model: they are rough
-  // work that isn't graded, so skipping them cuts transcription time (fewer images
-  // to read). The teacher controls this by marking scratch pages on the submissions
-  // page. Page 1 (masked name page) is always kept.
-  const scratch = new Set(submission.scratch_pages ?? []);
+/**
+ * The page images in one submission's page folder to send, in page order.
+ *
+ * Pages the teacher marked as scratch are NOT sent to the model: they are rough
+ * work that isn't graded, so skipping them cuts transcription time (fewer images
+ * to read). Page 1 (the name page) is always kept. Any page with a mask is sent
+ * masked; page 1 without one is refused unless requireMask is false.
+ */
+export function pageImagesToSend(dir: string, scratchPages: number[], requireMask: boolean): string[] {
+  const scratch = new Set(scratchPages);
 
   // Discover page numbers present on disk (page-N.png), ignoring the masked file.
   const present: number[] = [];
@@ -58,7 +68,7 @@ function resolvePageImages(submission: SubmissionRow): string[] {
   }
   present.sort((a, b) => a - b);
   if (present.length === 0) {
-    throw new Error(`transcribe: no page-N.png files in ${dir} for submission ${submission.id}`);
+    throw new Error(`transcribe: no page-N.png files in ${dir}`);
   }
 
   return present.map((n) => {
@@ -66,7 +76,7 @@ function resolvePageImages(submission: SubmissionRow): string[] {
     // that instead of the raw page so the masked name never reaches the cloud.
     const masked = path.join(dir, `page-${n}-masked.png`);
     if (fs.existsSync(masked)) return masked;
-    if (n === 1) {
+    if (n === 1 && requireMask) {
       // Page 1 must always be masked (its name area is the guaranteed name location).
       throw new Error(
         `transcribe: masked page 1 missing at ${masked}. Refusing to send unmasked page-1.png ` +
@@ -77,16 +87,33 @@ function resolvePageImages(submission: SubmissionRow): string[] {
   });
 }
 
+/**
+ * Roster names found in a PDF's own text, page by page. A paper sent without a
+ * mask is the teacher's word that it carries no names; for a typed PDF that word
+ * can be checked before anything leaves the machine. A scan has no text to read,
+ * so it finds nothing there — the reason the setup page says scans can't be checked.
+ */
+export function rosterNamesInPdfText(pdfPath: string, names: string[]): { page: number; name: string }[] {
+  const found: { page: number; name: string }[] = [];
+  extractPdfPageTexts(pdfPath).forEach((text, i) => {
+    for (const name of names) {
+      if (nameRegex(name, "i").test(text)) found.push({ page: i + 1, name });
+    }
+  });
+  return found;
+}
+
 function buildPrompt(
   pseudonym: string,
   questions: QuestionRow[],
   scratchPages: number[],
-  programme: Programme
+  programme: Programme,
+  nameMasked: boolean
 ): string {
-  if (programme === "DP") return buildDpPrompt(pseudonym, questions, scratchPages);
+  if (programme === "DP") return buildDpPrompt(pseudonym, questions, scratchPages, nameMasked);
   const questionList = questions.map((q) => `- Question ${q.number}`).join("\n");
   return `You are transcribing a scanned, handwritten MYP mathematics assessment for student ${pseudonym}.
-The pages are provided as images (read them with your Read tool). Page 1's name area has been masked.
+The pages are provided as images (read them with your Read tool).${nameMasked ? " Page 1's name area has been masked." : ""}
 
 Your ONLY job is to faithfully reconstruct what the student actually wrote, question by question.
 You are NOT grading and you must NOT solve the problems yourself.
@@ -113,8 +140,15 @@ RULES — read carefully:
 8. CROSSED-OUT WORK: when the student struck through, scribbled over or otherwise cancelled a line,
    transcribe it as its own step with the text prefixed "[crossed out] ". Never drop it silently — the
    teacher needs to see it was there — and never merge it into the step above or below. The student
-   rejected that work, so it earns no credit later (the teacher removes the prefix to count a step she
-   decides was not really cancelled).
+   rejected that work, so it is taken out of the answer and earns no credit (the teacher puts a line
+   back if it was not really cancelled).
+9. TYPED WORK, GRAPHS AND TABLES: the work may be a typed report rather than handwriting — transcribe it
+   the same way, one sentence or short line per step. A graph, diagram or screenshot is ONE step in square
+   brackets describing exactly what is shown: what is plotted, the axis labels and scales, any labelled
+   points, a key — e.g. "[graph: two straight lines labelled 'Plan A' and 'Plan B'; x-axis 'number of
+   people', 0 to 100 in steps of 10; y-axis unlabelled; intersection marked and labelled (12, 340)]". Say
+   what is missing when it is plainly missing (no axis labels, no key). A table is one step per row, its
+   columns separated by " | ". Describe only what is there, never what it should show.
 
 Return ONLY strict JSON: an array of objects, one per question you found, each exactly:
 {
@@ -134,7 +168,12 @@ No prose, no code fences — just the JSON array.`;
  * to. The questionNumber stays the top-level number so downstream matching is
  * unchanged.
  */
-function buildDpPrompt(pseudonym: string, questions: QuestionRow[], scratchPages: number[]): string {
+function buildDpPrompt(
+  pseudonym: string,
+  questions: QuestionRow[],
+  scratchPages: number[],
+  nameMasked: boolean
+): string {
   const questionList = questions
     .map((q) => {
       const labels = (q.dp_scheme?.subparts ?? [])
@@ -146,7 +185,7 @@ function buildDpPrompt(pseudonym: string, questions: QuestionRow[], scratchPages
     })
     .join("\n");
   return `You are transcribing a scanned, handwritten IB DP Mathematics: Applications and Interpretation assessment for student ${pseudonym}.
-The pages are provided as images (read them with your Read tool). Page 1's name area has been masked.
+The pages are provided as images (read them with your Read tool).${nameMasked ? " Page 1's name area has been masked." : ""}
 
 Your ONLY job is to faithfully reconstruct what the student actually wrote, question by question.
 You are NOT grading and you must NOT solve the problems yourself.
@@ -177,8 +216,15 @@ RULES — read carefully:
 8. CROSSED-OUT WORK: when the student struck through, scribbled over or otherwise cancelled a line,
    transcribe it as its own step with the text prefixed "[crossed out] ". Never drop it silently — the
    teacher needs to see it was there — and never merge it into the step above or below. The student
-   rejected that work, so it earns no credit later (the teacher removes the prefix to count a step she
-   decides was not really cancelled).
+   rejected that work, so it is taken out of the answer and earns no credit (the teacher puts a line
+   back if it was not really cancelled).
+9. SKETCHES, GRAPHS, DIAGRAMS AND TABLES: a sketch, graph or diagram is ONE step in square brackets
+   describing exactly what is drawn — the shape, the axes and their labels, and every value the student
+   marked on it (intercepts, turning points, asymptotes, endpoints of a domain, labelled sides or angles)
+   — e.g. "[sketch: right-angled triangle, hypotenuse labelled 12.3, angle 63° at the base, vertical
+   side labelled h]". Mark schemes award marks for these features, so say what is missing when it is
+   plainly missing (no labels, no scale). A table is one step per row, its columns separated by " | ".
+   Describe only what is there, never what it should show.
 
 Return ONLY strict JSON: an array of objects, one per question you found, each exactly:
 {
@@ -227,10 +273,25 @@ export async function transcribeSubmission(submissionId: number): Promise<Transc
   }
 
   const forbiddenNames = getForbiddenNames(student.class_id);
-  const imagePaths = resolvePageImages(submission);
+  const imagePaths = resolvePageImages(submission, !assessment.no_name_mask);
+  const nameMasked = imagePaths.some((p) => path.basename(p) === "page-1-masked.png");
+  if (!nameMasked) {
+    // Unmasked by the teacher's choice. Where the PDF carries text, check that choice:
+    // a name from the class list on any page about to be sent stops the paper here.
+    const sentPages = new Set(imagePaths.map((p) => Number(/page-(\d+)/.exec(path.basename(p))?.[1])));
+    const pdf = resolveStoredPath(submission.pdf_path);
+    const hits = (pdf ? rosterNamesInPdfText(pdf, forbiddenNames) : []).filter((h) => sentPages.has(h.page));
+    if (hits.length > 0) {
+      throw new Error(
+        `Page ${hits[0].page} of this paper has a name from the class list on it ("${hits[0].name}"), ` +
+          `so it was not sent to the AI. This assessment is set to send pages without a name mask — ` +
+          `turn the name mask back on in setup, or take the name out of the file and upload it again.`
+      );
+    }
+  }
   // Scratch pages are excluded from imagePaths above, so the prompt is told none are
   // present (there is no [scratch] work to transcribe from images we didn't send).
-  const prompt = buildPrompt(student.pseudonym, questions, [], assessment.programme);
+  const prompt = buildPrompt(student.pseudonym, questions, [], assessment.programme, nameMasked);
 
   const parsed = await runClaudeJson<TranscriptQuestion[]>({
     purpose: "transcribe",
@@ -329,12 +390,13 @@ function normalizeQuestion(
         ...(f?.resolvedText !== undefined ? { resolvedText: String(f.resolvedText) } : {}),
       }))
     : [];
-  return {
+  // A line the student struck through comes out of the answer from the start.
+  return omitCrossedOut({
     questionNumber: typeof q.questionNumber === "string" ? q.questionNumber : fallbackNumber,
     steps,
     illegible,
     blank: Boolean(q.blank) || steps.length === 0,
-  };
+  });
 }
 
 /** Batch: transcribe several submissions sequentially (one CLI call at a time). */

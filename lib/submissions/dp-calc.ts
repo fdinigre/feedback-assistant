@@ -36,10 +36,44 @@ export const pickFinal: AwardPicker = (a) => a.finalAwarded ?? a.conservativeAwa
 export const pickConservative: AwardPicker = (a) => a.conservativeAwarded;
 export const pickProposed: AwardPicker = (a) => a.awarded;
 
+function clampPoints(value: number, cap: number | null | undefined): number {
+  const v = Math.max(0, value);
+  return cap != null ? Math.min(v, cap) : v;
+}
+
+/** The whole question's maximum: the markscheme's total, else its parts' maxima added up. */
+function questionCap(scheme: DpQuestionScheme | null | undefined): number | null {
+  if (!scheme) return null;
+  if (Number.isFinite(scheme.totalMarks) && scheme.totalMarks > 0) return scheme.totalMarks;
+  return (scheme.subparts ?? []).reduce((sum, sp) => sum + (sp.maxMarks || 0), 0) || null;
+}
+
 /**
- * Sums the marks for one question's grading under a given pass (proposed/conservative/final).
- * Each sub-part is capped at its scheme max: a correct-answer mark (C1/C2/C3) is an ALTERNATIVE
- * to that sub-part's method/accuracy marks, so a scheme carrying both must never exceed maxMarks.
+ * One part's marks under a given pass, capped at its scheme max: a correct-answer
+ * mark (C1/C2/C3) is an ALTERNATIVE to that part's method/accuracy marks, so a
+ * scheme carrying both must never exceed maxMarks. Under the final pass, the
+ * teacher's own total for the part (from their marks sheet) stands in for the awards.
+ */
+function subpartMarks(
+  subpart: DpGradingQuestion["subparts"][number],
+  markValues: Map<string, number>,
+  cap: number | undefined,
+  pick: AwardPicker
+): number {
+  if (pick === pickFinal && typeof subpart.teacherPoints === "number") {
+    return clampPoints(subpart.teacherPoints, cap);
+  }
+  let spTotal = 0;
+  for (const award of subpart.awards ?? []) {
+    if (pick(award)) spTotal += markValues.get(award.markId) ?? 0;
+  }
+  return clampPoints(spTotal, cap);
+}
+
+/**
+ * Sums the marks for one question's grading under a given pass (proposed/conservative/final),
+ * part by part. Under the final pass, a teacher's total for the whole question — from their
+ * marks sheet — stands in for its parts.
  */
 export function sumQuestionMarks(
   content: DpGradingQuestion,
@@ -50,19 +84,32 @@ export function sumQuestionMarks(
   // Defensive: a malformed/legacy grading (e.g. one written by the MYP grader) has no
   // subparts — treat it as zero rather than crashing the whole review page.
   if (!content || !Array.isArray(content.subparts)) return total;
+  if (pick === pickFinal && typeof content.teacherPoints === "number") {
+    return clampPoints(content.teacherPoints, questionCap(scheme));
+  }
   const markValues = buildMarkValueMap(scheme);
   const maxByLabel = new Map((scheme?.subparts ?? []).map((sp) => [sp.label, sp.maxMarks]));
   for (const subpart of content.subparts) {
-    let spTotal = 0;
-    for (const award of subpart.awards ?? []) {
-      if (pick(award)) {
-        spTotal += markValues.get(award.markId) ?? 0;
-      }
-    }
-    const cap = maxByLabel.get(subpart.label);
-    total += cap != null ? Math.min(spTotal, cap) : spTotal;
+    total += subpartMarks(subpart, markValues, maxByLabel.get(subpart.label), pick);
   }
   return total;
+}
+
+/**
+ * One part's final marks ("b.ii"), as the review screen and a marks sheet see it:
+ * the teacher's total for the part if there is one, else the awards. Null when the
+ * grading has no such part.
+ */
+export function sumSubpartMarks(
+  content: DpGradingQuestion,
+  scheme: DpQuestionScheme | null | undefined,
+  label: string,
+  pick: AwardPicker = pickFinal
+): number | null {
+  const subpart = content?.subparts?.find((sp) => sp.label === label);
+  if (!subpart) return null;
+  const cap = scheme?.subparts?.find((sp) => sp.label === label)?.maxMarks;
+  return subpartMarks(subpart, buildMarkValueMap(scheme), cap, pick);
 }
 
 /** Sums a whole submission across all its questions under a given pass. */

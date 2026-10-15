@@ -11,10 +11,18 @@ type Body = {
   submissionId: number;
   questionId: number;
   content: TranscriptQuestion;
+  /**
+   * "autosave": the review screen saving an edit by itself. Stored exactly as sent —
+   * every edit already leaves the transcript right to store (lib/submissions/
+   * transcript-edits.ts), and nothing may be settled on the teacher's behalf just
+   * because she paused typing. Absent: the old explicit Save, which settles.
+   */
+  mode?: "autosave";
 };
 
 /**
- * Saving a question's transcript means the teacher has reviewed its steps, so any illegible
+ * An explicit Save (no longer offered by the review screens, which save each edit
+ * by themselves; kept for any page still open from before) means the teacher has reviewed its steps, so any illegible
  * flag still pending is resolved from the current step text: a step with real text becomes the
  * resolution; a step left blank or still holding a "[?]" placeholder is marked unreadable (no
  * credit). This is why the red flags clear on Save — she never re-types what she fixed above.
@@ -51,7 +59,9 @@ export async function POST(request: Request) {
   if (
     typeof body.submissionId !== "number" ||
     typeof body.questionId !== "number" ||
-    !body.content
+    !body.content ||
+    !Array.isArray(body.content.steps) ||
+    !Array.isArray(body.content.illegible)
   ) {
     return Response.json(
       { error: "submissionId, questionId and content are required" },
@@ -73,7 +83,7 @@ export async function POST(request: Request) {
   const row = upsertTranscript({
     submission_id: body.submissionId,
     question_id: body.questionId,
-    content: markReviewed(body.content),
+    content: body.mode === "autosave" ? body.content : markReviewed(body.content),
   });
 
   // Editing the transcript changes the evidence — any approved report is now stale.

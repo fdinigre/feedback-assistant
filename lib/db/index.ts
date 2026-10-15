@@ -4,6 +4,8 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { REPORT_STRUCTURE } from "@/lib/style/examples";
+import { omitCrossedOut } from "@/lib/submissions/transcript-edits";
+import type { TranscriptQuestion } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 // The automated checks run against a throwaway database of their own. They set
@@ -337,6 +339,40 @@ function migrateSheetMarksForKeptComparison(instance: Database.Database): void {
 }
 
 /**
+ * sheet_marks gained `part`, so a DP marks sheet can mark one part of a question
+ * (Q1a) as well as a whole one. The UNIQUE key has to take it in, and SQLite
+ * cannot change a constraint in place, so the table is rebuilt with every row
+ * kept as a whole-question mark (part ''). Idempotent: skipped once the column
+ * exists. Runs after the kept-comparison columns were added.
+ */
+function migrateSheetMarksForParts(instance: Database.Database): void {
+  const columns = instance.prepare("PRAGMA table_info(sheet_marks)").all() as { name: string }[];
+  if (columns.length === 0 || columns.some((c) => c.name === "part")) return;
+  instance.transaction(() => {
+    instance.exec(`
+      CREATE TABLE sheet_marks_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
+        question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+        part TEXT NOT NULL DEFAULT '',
+        points REAL NOT NULL,
+        from_blank INTEGER NOT NULL DEFAULT 0,
+        app_points REAL,
+        resolution TEXT CHECK (resolution IS NULL OR resolution IN ('mine', 'app')),
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE (submission_id, question_id, part)
+      );
+      INSERT INTO sheet_marks_new
+        (id, submission_id, question_id, part, points, from_blank, app_points, resolution, created_at)
+        SELECT id, submission_id, question_id, '', points, from_blank, app_points, resolution, created_at
+          FROM sheet_marks;
+      DROP TABLE sheet_marks;
+      ALTER TABLE sheet_marks_new RENAME TO sheet_marks;
+    `);
+  })();
+}
+
+/**
  * Financial Math (v2): classes carry a course, students a modified flag, and
  * questions a variant. Plain ADD COLUMNs, so no table rebuild is needed.
  */
@@ -366,6 +402,46 @@ function migrateCourseToFreeText(instance: Database.Database): void {
   instance.transaction(() => {
     instance.exec("UPDATE classes SET course = 'Financial Math' WHERE course = 'financial_math'");
     instance.exec("UPDATE classes SET course = 'AI SL' WHERE programme = 'DP' AND course IS NULL");
+    instance.prepare("INSERT INTO app_settings (key, value) VALUES (?, 'done')").run(KEY);
+  })();
+}
+
+/**
+ * assessments gained no_name_mask, the teacher's word that a task's papers carry no
+ * student names. A plain ADD COLUMN defaulting to 0, so every existing assessment
+ * keeps requiring its mask. Idempotent: skipped once the column exists.
+ */
+function migrateAssessmentsNoNameMask(instance: Database.Database): void {
+  const columns = instance.prepare("PRAGMA table_info(assessments)").all() as { name: string }[];
+  if (columns.length === 0 || columns.some((c) => c.name === "no_name_mask")) return;
+  instance.exec("ALTER TABLE assessments ADD COLUMN no_name_mask INTEGER NOT NULL DEFAULT 0");
+}
+
+/**
+ * Lines the student crossed out are taken out of the answer when a paper is
+ * transcribed; this does the same, once, for papers transcribed before that. The
+ * text stays on record, struck through, and the teacher can put any line back.
+ * Recorded in app_settings, so a line put back afterwards is never taken out again.
+ */
+function migrateOmitCrossedOut(instance: Database.Database): void {
+  const KEY = "migration:omit-crossed-out";
+  if (instance.prepare("SELECT 1 FROM app_settings WHERE key = ?").get(KEY)) return;
+  const rows = instance
+    .prepare("SELECT id, content FROM transcripts WHERE content LIKE '%[crossed out]%' COLLATE NOCASE")
+    .all() as { id: number; content: string }[];
+  const update = instance.prepare("UPDATE transcripts SET content = ? WHERE id = ?");
+  instance.transaction(() => {
+    for (const row of rows) {
+      let content: TranscriptQuestion;
+      try {
+        content = JSON.parse(row.content) as TranscriptQuestion;
+      } catch {
+        continue; // a row that will not parse is left exactly as it is
+      }
+      if (!Array.isArray(content?.steps)) continue;
+      const next = omitCrossedOut(content);
+      if (next !== content) update.run(JSON.stringify(next), row.id);
+    }
     instance.prepare("INSERT INTO app_settings (key, value) VALUES (?, 'done')").run(KEY);
   })();
 }
@@ -416,9 +492,12 @@ function initDb(): Database.Database {
   migrateAssessmentsForClassScope(instance);
   migrateAssessmentFilePaths(instance);
   migrateSheetMarksForKeptComparison(instance);
+  migrateSheetMarksForParts(instance);
   migrateForFinancialMath(instance);
   migrateCourseToFreeText(instance);
   migrateExternalDataPeriod(instance);
+  migrateAssessmentsNoNameMask(instance);
+  migrateOmitCrossedOut(instance);
   instance.pragma("foreign_keys = ON");
 
   seedStyleExamples(instance);

@@ -173,6 +173,8 @@ export type AssessmentRow = {
   paper_file: string | null;
   markscheme_file: string | null;
   cover_targets: string[] | null; // parsed JSON
+  /** The teacher has said these papers carry no student names: no mask is required. */
+  no_name_mask: boolean;
   created_at: string;
 };
 
@@ -219,11 +221,19 @@ export interface DpGradingSubpart {
   label: string;
   awards: DpMarkAward[];
   flags: string[];
+  /**
+   * The teacher's total for this part, taken from their marks sheet. It stands in
+   * for the awards in every final total, which stay on record for reference;
+   * toggling an award clears it, so the part goes back to being itemised.
+   */
+  teacherPoints?: number;
 }
 
 export interface DpGradingQuestion {
   subparts: DpGradingSubpart[];
   totalAwarded: number;
+  /** The teacher's total for the whole question, from their marks sheet — as above. */
+  teacherPoints?: number;
 }
 
 export type QuestionRow = {
@@ -259,6 +269,24 @@ export type RubricRow = {
   assessment_id: number;
   criterion: string; // 'B' | 'C' | 'D'
   content: string;
+  created_at: string;
+};
+
+/**
+ * What a task document is to the grader. The kind decides how it is read: a
+ * template's headings are not the student's writing, an exemplar shows a
+ * standard rather than the one route to it, and so on (see task-documents.ts).
+ */
+export type TaskDocumentKind = "task" | "template" | "rubric" | "exemplar" | "solution" | "other";
+
+export type TaskDocumentRow = {
+  id: number;
+  assessment_id: number;
+  kind: TaskDocumentKind;
+  original_name: string;
+  file_path: string | null;
+  text: string;
+  used_vision: boolean;
   created_at: string;
 };
 
@@ -346,6 +374,8 @@ export type SheetMarkRow = {
   id: number;
   submission_id: number;
   question_id: number;
+  /** The markscheme part a DP sheet marked ("a", "b.ii"); '' for the whole question. */
+  part: string;
   points: number;
   from_blank: boolean;
   /** The app's mark when the sheet was uploaded; null on rows from before this was recorded. */
@@ -368,6 +398,8 @@ export type MarksUploadSummary = {
   unmarked: number;
   /** Headed columns that were not read as questions (subtotals, or headings the app can't parse). */
   ignoredColumns?: string[];
+  /** Question columns read as subtotals, because the sheet also marks that question's parts. */
+  subtotalColumns?: string[];
 };
 
 export type MarksSheetRow = {
@@ -396,6 +428,8 @@ export type SheetDifference = {
   studentName: string;
   questionId: number;
   questionNumber: string;
+  /** The DP markscheme part the sheet marked ("a", "b.ii"); '' for the whole question. */
+  part: string;
   maxPoints: number;
   /** What the app has now (teacher override if set, else the AI's mark); null when unmarked. */
   current: number | null;

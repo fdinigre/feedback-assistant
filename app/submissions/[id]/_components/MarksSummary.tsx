@@ -17,7 +17,7 @@ import { questionNeedsReview } from "@/lib/submissions/review-state";
  * the proposed score was higher than the conservative one on record. A question whose mark
  * differs from the teacher's uploaded sheet is a coloured chip showing both
  * marks — indigo where the teacher gave more, rose where they gave less — and an
- * amber chip is one whose transcript still needs checking against the scan.
+ * amber chip is one with a part the AI couldn't read ([?]) still to fix.
  * Every chip selects its question in the pane beside the scan.
  */
 export function MarksSummary({
@@ -87,7 +87,7 @@ export function MarksSummary({
           const chipTitle = difference
             ? `Your sheet says ${difference.sheet}; the app has ${difference.current}. Click to check.`
             : review
-            ? "Low-confidence or unresolved illegible steps — click to check against the scan."
+            ? "A part the AI couldn't read ([?]) still to fix — click to open it. Grading waits for it."
             : `Show question ${question.number}`;
           return (
             <span key={question.id} className="inline-flex items-center whitespace-nowrap">
@@ -140,7 +140,7 @@ export function MarksSummary({
           <span className="rounded bg-amber-100 px-1 font-semibold text-amber-900">
             {reviewCount} question{reviewCount === 1 ? "" : "s"} to check
           </span>{" "}
-          — low-confidence or unresolved illegible steps. Click one to open it.
+          — each has a part the AI couldn&apos;t read ([?]), which grading waits for. Click one to open it.
         </p>
       )}
 

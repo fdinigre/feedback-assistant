@@ -10,7 +10,9 @@ It runs on your own Mac. Your classes, students, scans and marks stay in a
 folder on your computer — there is no cloud database and no account to create.
 The AI reading and marking runs on **Gemini, signed in with your
 @thekaustschool.org Google account**, the account the school has approved for
-student work.
+student work. Gemini's free allowance is weekly; if it runs out mid-marking,
+**Settings → AI** switches to Claude (it needs your own Claude Pro or Max
+account) until it resets.
 
 ## Getting it
 
@@ -39,10 +41,14 @@ students, scans, marks or reports.
 - **Students are never named.** Each student gets a code; the app refuses to
   send anything that still contains a name from your rosters.
 - **The name on the scan is blacked out** on page 1 (and any other page you
-  add a mask to) before the image is sent.
-- **Only your school account.** Before every AI call the app checks which
-  Google account Gemini is signed in to, and stops if it is not a
-  @thekaustschool.org one.
+  add a mask to) before the image is sent. For work that carries no names — a
+  typed report handed in as a file — you can set an assessment to need no mask;
+  a typed PDF is then checked for names from the class list before it is sent.
+- **Only your school account, on Gemini.** Before every Gemini call the app
+  checks which Google account it is signed in to, and stops if it is not a
+  @thekaustschool.org one. If you switch to Claude in Settings → AI, work goes
+  to your own Claude account instead — still with codes for names and page 1
+  masked — and Settings shows which account each is signed in as.
 - **Everything sent is logged** first, under Settings → AI request log, so you
   can see exactly what went.
 
@@ -97,8 +103,10 @@ npm test        # the automated checks (maintainer's repository only)
 
 - All data lives in `data/` (SQLite database, uploaded scans, rendered pages,
   the AI request log). It is gitignored and never part of a release.
-- The AI backend is chosen by `MFA_AI_PROVIDER` in `.env.local` (`gemini` or
-  `claude`). Colleagues' copies are Gemini-only; the installer writes it.
+- The AI backend is chosen in **Settings → AI**, taking effect on the next
+  request; until a choice is made there, by `MFA_AI_PROVIDER` in `.env.local`
+  (`gemini` or `claude`). Colleagues' copies start on Gemini — the installer
+  writes it — and can switch to Claude in Settings if they have an account.
 - Releases are published from the maintainer's copy with **Publish an
   Update**, which refuses unless the code is committed and pushed, every check
   passes, and the release contains no student data and no roster name. This

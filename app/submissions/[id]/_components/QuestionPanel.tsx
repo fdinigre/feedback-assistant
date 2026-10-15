@@ -1,6 +1,7 @@
 "use client";
 
-import { questionNeedsReview, stepNeedsCheck } from "@/lib/submissions/review-state";
+import { flagBlocks, questionNeedsReview, stepIsUncertain, stepNeedsCheck } from "@/lib/submissions/review-state";
+import { canUseLineAsIs } from "@/lib/submissions/transcript-edits";
 import type {
   GradingQuestion,
   QuestionRow,
@@ -24,6 +25,8 @@ export function QuestionPanel({
   onStepTextChange,
   onIllegibleResolvedTextChange,
   onMarkUnreadable,
+  onUseLineAsIs,
+  onAcceptAsItStands,
   onToggleStepOmitted,
   onSaveTranscript,
   savingTranscript,
@@ -42,6 +45,10 @@ export function QuestionPanel({
   onStepTextChange: (stepIndex: number, text: string) => void;
   onIllegibleResolvedTextChange: (flagIndex: number, text: string) => void;
   onMarkUnreadable: (flagIndex: number) => void;
+  /** The flagged line is right as it reads. */
+  onUseLineAsIs: (flagIndex: number) => void;
+  /** The whole question as it stands: what the old Save button did. */
+  onAcceptAsItStands: () => void;
   /** Take a line out of the answer, or put it back. */
   onToggleStepOmitted: (stepIndex: number) => void;
   onSaveTranscript: () => void;
@@ -94,7 +101,7 @@ export function QuestionPanel({
         <span className="flex items-baseline gap-2 text-xs text-slate-500">
           {needsReview && (
             <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">
-              Check against the scan
+              Unreadable part to fix
             </span>
           )}
           <span>
@@ -174,8 +181,17 @@ export function QuestionPanel({
                     ? "border-slate-200 bg-slate-50 text-slate-400 line-through"
                     : stepNeedsCheck(transcript, i)
                       ? "border-amber-400 bg-amber-50"
-                      : "border-slate-300 bg-white"
+                      : stepIsUncertain(transcript, i)
+                        ? "border-sky-200 bg-sky-50"
+                        : "border-slate-300 bg-white"
                 }`}
+                title={
+                  stepNeedsCheck(transcript, i)
+                    ? "Part of this line couldn't be read — fix it, or mark it unreadable, before grading."
+                    : stepIsUncertain(transcript, i)
+                      ? "The AI was less sure of this line — worth a glance at the scan, not required."
+                      : undefined
+                }
                 placeholder={`Step ${i + 1}`}
               />
               {/* Not the same as unreadable: this line is legible, it just is
@@ -196,7 +212,15 @@ export function QuestionPanel({
             </div>
           ))}
           {transcript.steps.some((_, i) => stepNeedsCheck(transcript, i)) && (
-            <p className="text-xs text-amber-700">Amber steps are low-confidence — check against the scan.</p>
+            <p className="text-xs text-amber-700">
+              Orange lines have a part the AI couldn&apos;t read ([?]) — fix it, or mark it unreadable.
+              Grading waits for these.
+            </p>
+          )}
+          {transcript.steps.some((_, i) => stepIsUncertain(transcript, i)) && (
+            <p className="text-xs text-sky-700">
+              Blue lines are ones the AI was less sure of — worth a glance at the scan, not required.
+            </p>
           )}
 
           {transcript.illegible.some((f) => !transcript.steps[f.stepIndex]?.omitted) && (
@@ -205,15 +229,17 @@ export function QuestionPanel({
                 Illegible flags
               </p>
               <p className="text-xs text-rose-700/80">
-                Fix the step above and Save — these clear automatically from the corrected steps. A
-                step left blank or still showing “[?]” is saved as unreadable (no credit). You can
-                also type a resolution here or mark it unreadable.
+                Fix the line above and its flag clears once no “[?]” is left in it. Or type what it says
+                here, use the line as it is, or mark it unreadable (no credit). Only a line still showing
+                “[?]” holds up grading.
               </p>
               {transcript.illegible.map((flag, i) => {
                 if (transcript.steps[flag.stepIndex]?.omitted) return null;
                 const status =
                   flag.resolvedText === undefined
-                    ? "unresolved"
+                    ? flagBlocks(transcript, flag)
+                      ? "to fix"
+                      : "worth a glance"
                     : flag.resolvedText === ""
                       ? "marked unreadable"
                       : "resolved";
@@ -223,9 +249,11 @@ export function QuestionPanel({
                       Step {flag.stepIndex + 1}: {flag.note}{" "}
                       <span
                         className={`ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${
-                          status === "unresolved"
+                          status === "to fix"
                             ? "bg-rose-100 text-rose-700"
-                            : status === "marked unreadable"
+                            : status === "worth a glance"
+                              ? "bg-sky-100 text-sky-800"
+                              : status === "marked unreadable"
                               ? "bg-slate-200 text-slate-600"
                               : "bg-emerald-100 text-emerald-700"
                         }`}
@@ -241,6 +269,15 @@ export function QuestionPanel({
                         placeholder="Type what this segment actually says…"
                         className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm"
                       />
+                      {canUseLineAsIs(transcript, i) && (
+                        <button
+                          type="button"
+                          onClick={() => onUseLineAsIs(i)}
+                          className="shrink-0 rounded border border-emerald-300 px-2 py-1 text-xs text-emerald-800 hover:bg-emerald-50"
+                        >
+                          Use the line as it is
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => onMarkUnreadable(i)}
@@ -255,16 +292,49 @@ export function QuestionPanel({
             </div>
           )}
 
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onSaveTranscript}
-              disabled={savingTranscript}
-              className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              {savingTranscript ? "Saving…" : "Save transcript"}
-            </button>
-            <SaveStatusNote status={transcriptStatus} />
+          {/* Edits save themselves; this only says how that is going. */}
+          <div className="mt-2 flex min-h-6 flex-wrap items-center gap-2 text-xs text-slate-500">
+            {transcript.steps.some(
+              (_, i) => stepNeedsCheck(transcript, i) || stepIsUncertain(transcript, i)
+            ) && (
+              <button
+                type="button"
+                onClick={() => {
+                  const unreadable = transcript.steps.filter((_, i) => stepNeedsCheck(transcript, i)).length;
+                  if (
+                    unreadable > 0 &&
+                    !window.confirm(
+                      `Accept this question as it stands?\n\n${unreadable} line${unreadable === 1 ? " still shows" : "s still show"} “[?]” and will count as unreadable (no credit). Every other line is used as written.`
+                    )
+                  ) {
+                    return;
+                  }
+                  onAcceptAsItStands();
+                }}
+                title="Use every line as written — what Save used to do. Lines still showing [?] count as unreadable."
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-medium text-slate-800 hover:bg-slate-100"
+              >
+                Accept as it stands
+              </button>
+            )}
+            {savingTranscript ? (
+              <span>Saving…</span>
+            ) : transcriptStatus?.kind === "error" ? (
+              <>
+                <span className="font-medium text-rose-700">{transcriptStatus.message}</span>
+                <button
+                  type="button"
+                  onClick={onSaveTranscript}
+                  className="rounded border border-rose-300 px-2 py-0.5 font-medium text-rose-700 hover:bg-rose-50"
+                >
+                  Try again
+                </button>
+              </>
+            ) : transcriptStatus?.kind === "success" ? (
+              <span className="font-medium text-emerald-700">Saved ✓</span>
+            ) : (
+              <span>Changes save automatically.</span>
+            )}
           </div>
         </div>
       )}

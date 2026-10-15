@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useState } from "react";
 import type { DpQuestionScheme, DpSchemeMark, DpSubpart, QuestionRow } from "@/lib/types";
-import { saveDpQuestionScheme } from "../actions";
+import { deleteDpQuestionAction, saveDpQuestionScheme, type DpFormState } from "../actions";
+import { RemoveQuestionButton, type QuestionFootprint } from "./RemoveQuestionButton";
+
+const initialState: DpFormState = { error: null };
 
 const EMPTY_SCHEME: DpQuestionScheme = { subparts: [{ label: "", maxMarks: 0, scheme: "", marks: [], notes: [] }], totalMarks: 0 };
 
@@ -15,17 +18,31 @@ function newMark(subpartLabel: string, index: number): DpSchemeMark {
  * (code/implied/ft/value/descriptor/alt) and notes, all editable. Saving one question does
  * not approve the whole parse — "Approve parse" is a separate, explicit gate (spec edge case:
  * the assessment does not activate until the structure is approved).
+ *
+ * The question number is editable and the question removable, because the parser
+ * can number a question wrongly or read one twice — and transcription looks for
+ * each question on the paper by its number.
  */
 export function DpQuestionSchemeCard({
   assessmentId,
   question,
+  footprint,
+  duplicateOf,
 }: {
   assessmentId: number;
   question: QuestionRow;
+  /** What removing it would take with it, for the confirmation. */
+  footprint: QuestionFootprint;
+  /** The number of an earlier question whose markscheme this one repeats word for word. */
+  duplicateOf: string | null;
 }) {
   const [scheme, setScheme] = useState<DpQuestionScheme>(question.dp_scheme ?? EMPTY_SCHEME);
+  const [number, setNumber] = useState(question.number);
   const [dirty, setDirty] = useState(false);
-  const action = saveDpQuestionScheme.bind(null, assessmentId, question.id);
+  const [state, action, saving] = useActionState(
+    saveDpQuestionScheme.bind(null, assessmentId, question.id),
+    initialState
+  );
 
   function update(next: DpQuestionScheme) {
     setScheme(next);
@@ -97,8 +114,27 @@ export function DpQuestionSchemeCard({
       onSubmit={() => setDirty(false)}
     >
       <input type="hidden" name="scheme_json" value={JSON.stringify(scheme)} readOnly />
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900">Question {question.number}</h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <label htmlFor={`number-${question.id}`} className="text-sm font-semibold text-slate-900">
+            Question
+          </label>
+          <input
+            id={`number-${question.id}`}
+            name="number"
+            value={number}
+            onChange={(e) => {
+              setNumber(e.target.value);
+              setDirty(true);
+            }}
+            className="w-16 rounded border border-slate-300 px-2 py-1 text-sm font-semibold"
+          />
+          <RemoveQuestionButton
+            number={question.number}
+            footprint={footprint}
+            formAction={deleteDpQuestionAction.bind(null, assessmentId, question.id)}
+          />
+        </div>
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span>Total marks (sum of sub-parts): {computedTotal}</span>
           {computedTotal !== scheme.totalMarks && (
@@ -106,6 +142,13 @@ export function DpQuestionSchemeCard({
           )}
         </div>
       </div>
+
+      {duplicateOf && (
+        <p className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+          This repeats question {duplicateOf}&apos;s markscheme word for word — the parser may have
+          read it twice. If the paper has no such question, remove it.
+        </p>
+      )}
 
       <div className="mt-3 space-y-4">
         {scheme.subparts.map((sp, spIdx) => (
@@ -275,12 +318,14 @@ export function DpQuestionSchemeCard({
         />
         <button
           type="submit"
-          className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
+          disabled={saving}
+          className="rounded-md bg-slate-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
         >
-          Save question
+          {saving ? "Saving…" : "Save question"}
         </button>
         {dirty && <span className="text-xs text-amber-700">Unsaved changes</span>}
       </div>
+      {state.error && <p className="mt-2 text-sm text-red-600">{state.error}</p>}
     </form>
   );
 }

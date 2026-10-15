@@ -9,7 +9,8 @@ import {
   uploadMarksSheetAction,
   type MarksApplyResult,
 } from "@/lib/marks-import/actions";
-import type { MarksUploadSummary, SheetDifference, SheetDifferenceStatus } from "@/lib/types";
+import type { MarksUploadSummary, Programme, SheetDifference, SheetDifferenceStatus } from "@/lib/types";
+import { sheetQuestionLabel } from "@/lib/marks-import/labels";
 
 const STATUS_LABEL: Record<SheetDifferenceStatus, { text: string; className: string }> = {
   waiting: { text: "To check", className: "bg-amber-100 text-amber-800" },
@@ -28,7 +29,7 @@ function formatUploadedAt(value: string): string {
 
 /** Stable identity for a difference, so ticking one row can't affect another. */
 function keyOf(d: SheetDifference): string {
-  return `${d.submissionId}:${d.questionId}`;
+  return `${d.submissionId}:${d.questionId}:${d.part}`;
 }
 
 function Warning({
@@ -69,6 +70,7 @@ function Warning({
 export function MarksImport({
   assessmentId,
   classId,
+  programme = "MYP",
   sheet,
   differences,
   pointsOnly = false,
@@ -76,6 +78,8 @@ export function MarksImport({
   assessmentId: number;
   /** The class whose roster the sheet's names are matched against. */
   classId: number | null;
+  /** A Diploma sheet can mark a question's parts (Q1a) as well as whole questions. */
+  programme?: Programme;
   /** A points-only test: no criterion levels are recalculated from the marks. */
   pointsOnly?: boolean;
   /** The uploaded sheet on file; null when none (or it predates being recorded). */
@@ -129,7 +133,11 @@ export function MarksImport({
       !window.confirm(
         `Use your mark for ${ticked.length} question${ticked.length === 1 ? "" : "s"}?\n\n` +
           "Your marks replace the current ones." +
-          (pointsOnly ? "" : " Criterion A levels are recalculated from them.")
+          (programme === "DP"
+            ? " Each paper's total, percentage and grade are recalculated from them."
+            : pointsOnly
+              ? ""
+              : " Criterion A levels are recalculated from them.")
       )
     ) {
       return;
@@ -138,7 +146,7 @@ export function MarksImport({
     try {
       const result = await applySheetMarksAction(
         assessmentId,
-        ticked.map((d) => ({ submissionId: d.submissionId, questionId: d.questionId }))
+        ticked.map((d) => ({ submissionId: d.submissionId, questionId: d.questionId, part: d.part }))
       );
       setDone(result);
       setToggled(new Set());
@@ -202,7 +210,9 @@ export function MarksImport({
         {busy && <span className="text-xs text-slate-500">Working…</span>}
       </div>
       <p className="mt-1 text-xs text-slate-500">
-        A spreadsheet with a Name column and Q1, Q2, … columns. Subtotal columns are ignored.
+        {programme === "DP"
+          ? "A spreadsheet with a Name column and a column per question (Q2) or per part (Q1a, Q1b, Q5b(ii)) — the points, not the M and A marks. Where a question's parts have columns, its own column is read as a subtotal and ignored."
+          : "A spreadsheet with a Name column and Q1, Q2, … columns. Subtotal columns are ignored."}{" "}
         An empty cell counts as zero. Uploading changes no marks — it only flags the differences.
       </p>
 
@@ -275,6 +285,13 @@ export function MarksImport({
               <Warning title="On the roster but not in the sheet" items={summary.missingFromSheet} />
               <Warning title="In the sheet but has no paper to mark" items={summary.withoutSubmission} />
             </ul>
+          )}
+
+          {(summary.subtotalColumns?.length ?? 0) > 0 && (
+            <p className="mb-3 text-xs text-slate-500">
+              Read as subtotals and not compared, since the sheet also marks their parts:{" "}
+              {summary.subtotalColumns!.join(", ")}.
+            </p>
           )}
 
           {(summary.ignoredColumns?.length ?? 0) > 0 && (
@@ -364,7 +381,8 @@ export function MarksImport({
                         </Link>
                       </td>
                       <td className="px-3 py-1.5 text-slate-600">
-                        Q{d.questionNumber} <span className="text-slate-400">/{d.maxPoints}</span>
+                        {sheetQuestionLabel(d.questionNumber, d.part)}{" "}
+                        <span className="text-slate-400">/{d.maxPoints}</span>
                       </td>
                       <td className="px-3 py-1.5 text-slate-500">
                         {appMark ?? <span title="The app has not marked this question">—</span>}

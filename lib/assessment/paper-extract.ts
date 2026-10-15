@@ -84,7 +84,7 @@ export async function extractWorkedSolutionText(filePath: string): Promise<strin
   return pages.join("\n\n").trim();
 }
 
-const WORKED_VISION_PROMPT = `You are reading a mathematics teacher's own WORKED SOLUTIONS / MARKSCHEME for
+export const WORKED_VISION_PROMPT = `You are reading a mathematics teacher's own WORKED SOLUTIONS / MARKSCHEME for
 an MYP maths quiz. The pages are images (read them with your Read tool). The solutions are usually
 HANDWRITTEN — working shown in one colour and the MARK ALLOCATIONS marked in another colour, often
 as boxed numbers (e.g. a red "1" next to a step means one mark is awarded there). There are NO
@@ -127,6 +127,22 @@ export async function extractWorkedSolutionsVision(
   return scrubOutput(raw.trim(), forbiddenNames).text;
 }
 
+/**
+ * How to read an achievement-level table into descriptor rows. Shared by the blank
+ * paper read and the task-documents read, so both split a band the same way.
+ */
+export const RUBRIC_SPLIT_RULES = `Many MYP tasks print two columns for
+it: the official descriptor ("The student is able to: i. ... ii. ...") and a student-facing
+restatement ("You are able to ..."). SPLIT EACH BAND INTO ONE ENTRY PER REQUIREMENT — a band
+descriptor that says "describe the patterns as general rules. Verify and justify their validity"
+is TWO entries, not one. For each entry give:
+- "band": one of "1-2", "3-4", "5-6", "7-8".
+- "strand": the strand label printed beside it ("i", "ii", "iii"), or null if the table does not
+  number them. Keep the same label the paper uses, so the same strand can be followed from one
+  band to the next.
+- "text": the official wording, verbatim and without the leading numeral.
+- "studentText": the matching student-facing sentence if the table has that second column, else null.`;
+
 function buildPrompt(paperText: string): string {
   return `You are reading a blank MYP (Middle Years Programme) mathematics test paper — the question
 paper only, with NO student work and NO markscheme. Your job is to propose a structured question
@@ -157,17 +173,7 @@ Also return "coverTargets": an array of any student-facing learning targets/obje
 the paper's cover (verbatim), or an empty array if none.
 
 Also return "rubric": the achievement-level table, if the paper prints one (a table of levels
-1-2 / 3-4 / 5-6 / 7-8 against what the student has to do). Many MYP tasks print two columns for
-it: the official descriptor ("The student is able to: i. ... ii. ...") and a student-facing
-restatement ("You are able to ..."). SPLIT EACH BAND INTO ONE ENTRY PER REQUIREMENT — a band
-descriptor that says "describe the patterns as general rules. Verify and justify their validity"
-is TWO entries, not one. For each entry give:
-- "band": one of "1-2", "3-4", "5-6", "7-8".
-- "strand": the strand label printed beside it ("i", "ii", "iii"), or null if the table does not
-  number them. Keep the same label the paper uses, so the same strand can be followed from one
-  band to the next.
-- "text": the official wording, verbatim and without the leading numeral.
-- "studentText": the matching student-facing sentence if the table has that second column, else null.
+1-2 / 3-4 / 5-6 / 7-8 against what the student has to do). ${RUBRIC_SPLIT_RULES}
 Also give "criterion": the criterion letter the table is for ("B", "C", "D") if the paper says so,
 else null. If the paper prints no such table, return "rubric": null — do NOT invent descriptors.
 
@@ -243,7 +249,12 @@ export async function readPaperText(paperPath: string): Promise<{ text: string; 
  * The paper has no student names, so getForbiddenNames() here is only a privacy backstop.
  */
 export async function extractMypPaper(paperPath: string): Promise<PaperExtractResult> {
-  const paperText = (await readPaperText(paperPath)).text.slice(0, MAX_PAPER_CHARS);
+  return extractMypPaperFromText((await readPaperText(paperPath)).text);
+}
+
+/** The same proposal from paper text already read — a task sheet among the task documents. */
+export async function extractMypPaperFromText(text: string): Promise<PaperExtractResult> {
+  const paperText = text.slice(0, MAX_PAPER_CHARS);
 
   const parsed = await runClaudeJson<{
     questions?: unknown;
@@ -274,7 +285,7 @@ export async function extractMypPaper(paperPath: string): Promise<PaperExtractRe
 }
 
 /** Keeps only entries with a band this app knows and a non-empty statement. */
-function coerceRubric(value: unknown): ProposedRubric | null {
+export function coerceRubric(value: unknown): ProposedRubric | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as { criterion?: unknown; descriptors?: unknown };
   if (!Array.isArray(raw.descriptors)) return null;

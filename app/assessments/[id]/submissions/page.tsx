@@ -105,8 +105,8 @@ export default async function SubmissionsPage({
   const duplicateIds = findDuplicateSubmissionIds(submissions);
 
   // Marks on the teacher's uploaded sheet that still disagree with the app's.
-  const sheetDifferences = assessment.programme !== "DP" ? listSheetDifferences(assessmentId) : [];
-  const marksSheet = assessment.programme !== "DP" ? (getMarksSheet(assessmentId) ?? null) : null;
+  const sheetDifferences = listSheetDifferences(assessmentId);
+  const marksSheet = getMarksSheet(assessmentId) ?? null;
   const differenceCount = new Map<number, number>();
   for (const d of sheetDifferences) {
     if (d.status !== "waiting") continue;
@@ -116,8 +116,9 @@ export default async function SubmissionsPage({
   // The "no name mask configured" warning is stamped on a submission when it is
   // uploaded. Configuring a mask afterwards goes back and masks those earlier
   // scans, so once the assessment has any mask the stored warning is stale and
-  // must not be shown — it would claim, wrongly, that page 1 is unmasked.
-  const hasNameMask = assessment.name_masks.length > 0;
+  // must not be shown — it would claim, wrongly, that page 1 is unmasked. The same
+  // goes once the teacher has said the papers carry no names: there is nothing to mask.
+  const hasNameMask = assessment.name_masks.length > 0 || assessment.no_name_mask;
   const visibleWarnings = (warnings: string[] | null): string[] =>
     hasNameMask ? warningsWithoutMissingNameMask(warnings) : (warnings ?? []);
 
@@ -187,14 +188,12 @@ export default async function SubmissionsPage({
             >
               Spreadsheet (Excel)
             </a>
-            {assessment.programme !== "DP" && (
-              <a
-                href={`/api/export/assessment/${assessment.id}/csv`}
-                className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100"
-              >
-                CSV
-              </a>
-            )}
+            <a
+              href={`/api/export/assessment/${assessment.id}/csv`}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100"
+            >
+              CSV
+            </a>
             <a
               href={`/api/export/assessment/${assessment.id}/reports`}
               className="rounded-md border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100"
@@ -256,12 +255,12 @@ export default async function SubmissionsPage({
         );
       })()}
 
-      {submissions.some((s) => s.student_id !== null && s.status !== "absent") &&
-        assessment.programme !== "DP" && (
+      {submissions.some((s) => s.student_id !== null && s.status !== "absent") && (
           <MarksImport
             assessmentId={assessment.id}
             classId={assessment.class_id}
-            pointsOnly={isFmTest(assessment)}
+            programme={assessment.programme}
+            pointsOnly={isFmTest(assessment) || assessment.programme === "DP"}
             sheet={
               marksSheet && {
                 fileName: marksSheet.file_name,

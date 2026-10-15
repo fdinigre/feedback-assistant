@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  deleteQuestionCascade,
   findOrCreateLearningTarget,
   getAssessment,
   getDpResult,
+  getQuestion,
   listAssessments,
   listQuestions,
   listSubmissions,
@@ -19,6 +21,7 @@ import { extractCoverTargets, matchTargetsToQuestions } from "@/lib/assessment/c
 import { validateBoundaries } from "@/lib/assessment/dp-boundaries";
 import { clearParseApproved, markParseApproved, saveDpFile } from "@/lib/assessment/dp-paths";
 import { syncAssessmentStatus } from "@/lib/assessment/completeness";
+import { dropQuestionWarnings } from "@/lib/intake/batch";
 
 export type DpFormState = { error: string | null };
 
@@ -113,22 +116,52 @@ export async function runMsParseAction(
   return { error: null };
 }
 
-/** Saves a manually-edited DpQuestionScheme for one question (the parse editor). */
+/**
+ * Saves a manually-edited DpQuestionScheme for one question (the parse editor),
+ * with its question number: the parser sometimes numbers a question wrongly, and
+ * the number is what transcription looks for on the paper.
+ */
 export async function saveDpQuestionScheme(
   assessmentId: number,
   questionId: number,
+  _prev: DpFormState,
   formData: FormData
-): Promise<void> {
+): Promise<DpFormState> {
   const raw = String(formData.get("scheme_json") ?? "");
   let scheme: DpQuestionScheme;
   try {
     scheme = JSON.parse(raw) as DpQuestionScheme;
   } catch {
-    return;
+    return { error: "The question couldn't be read — reload the page and try again." };
+  }
+  const question = getQuestion(questionId);
+  if (!question || question.assessment_id !== assessmentId) return { error: "That question is no longer here." };
+  const number = String(formData.get("number") ?? question.number).trim();
+  if (!number) return { error: "Give the question a number." };
+  if (listQuestions(assessmentId).some((q) => q.id !== questionId && q.number.trim() === number)) {
+    return { error: `There is already a question ${number} — give this one another number, or remove one of them.` };
   }
   const totalMarks = Number.isFinite(scheme.totalMarks) ? scheme.totalMarks : 0;
-  updateQuestion(questionId, { dp_scheme: scheme, max_points: totalMarks });
+  updateQuestion(questionId, { number, dp_scheme: scheme, max_points: totalMarks });
+  // Warnings about the old number would point at a question that is no longer called that.
+  if (number !== question.number.trim()) dropQuestionWarnings(assessmentId, question.number.trim());
   // Editing the parse manually invalidates any previous approval.
+  clearParseApproved(assessmentId);
+  syncAssessmentStatus(assessmentId);
+  refresh(assessmentId);
+  return { error: null };
+}
+
+/**
+ * Removes a question the parser got wrong — one it invented, or one it read twice —
+ * with every student's transcript and marks for it. The parse goes back to needing
+ * approval, as after any other edit.
+ */
+export async function deleteDpQuestionAction(assessmentId: number, questionId: number): Promise<void> {
+  const question = getQuestion(questionId);
+  if (!question || question.assessment_id !== assessmentId) return;
+  deleteQuestionCascade(questionId);
+  dropQuestionWarnings(assessmentId, question.number.trim());
   clearParseApproved(assessmentId);
   syncAssessmentStatus(assessmentId);
   refresh(assessmentId);

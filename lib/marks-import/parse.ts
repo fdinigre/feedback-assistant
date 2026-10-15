@@ -33,16 +33,48 @@ export class MarksSheetError extends Error {}
 // "Q4", "Q 4a", "Q1a)" and "Q1(a)" are all the same heading to a teacher; the
 // bracket or dot after a part letter is decoration, not part of the label.
 // Lettered sections ("B1", "QB1", "C1") count too — a Financial Math test
-// numbers its parts that way.
-const QUESTION_LABEL = /^(?:q\s*[a-z]?|[a-z])\s*\d+\s*\(?\s*[a-z]?\s*[).]?$/i;
+// numbers its parts that way — and so does a Diploma paper's roman sub-part
+// after the letter ("Q5b(ii)", "Q5bii", "Q5 b.ii").
+const ROMAN = "(?:i{1,3}|iv|vi{0,3}|ix|x)";
+const QUESTION_LABEL = new RegExp(
+  `^(?:q\\s*[a-z]?|[a-z])\\s*\\d+\\s*\\(?\\s*[a-z]?\\s*[).]?\\s*(?:[.(]?\\s*${ROMAN}\\s*\\)?)?$`,
+  "i"
+);
 const MAX_CELL = /^\/\s*(\d+(?:\.\d+)?)$/;
 
-/** "Q 4a" / "q4A" -> "Q4a" and "b1" / "QB1" -> "QB1", so the same question always keys the same way. */
+/**
+ * "Q 4a" / "q4A" -> "Q4a", "b1" / "QB1" -> "QB1" and "Q5 b.ii" / "Q5(b)(ii)" -> "Q5b(ii)",
+ * so the same question always keys the same way.
+ */
 export function normaliseLabel(raw: string): string {
-  const m = raw.trim().match(/^(?:q\s*([a-z]?)|([a-z]))\s*(\d+)\s*\(?\s*([a-z]?)\s*[).]?$/i);
+  const m = raw
+    .trim()
+    .match(
+      new RegExp(
+        `^(?:q\\s*([a-z]?)|([a-z]))\\s*(\\d+)\\s*\\(?\\s*([a-z]?)\\s*[).]?\\s*(?:[.(]?\\s*(${ROMAN})\\s*\\)?)?$`,
+        "i"
+      )
+    );
   if (!m) return raw.trim();
   const section = (m[1] || m[2] || "").toUpperCase();
-  return `Q${section}${m[3]}${m[4].toLowerCase()}`;
+  const roman = m[5] ? `(${m[5].toLowerCase()})` : "";
+  return `Q${section}${m[3]}${m[4].toLowerCase()}${roman}`;
+}
+
+/** A part label reduced to letters and digits, so "b.ii", "b(ii)" and "bii" all match. */
+export function canonicalPart(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * What a Diploma sheet column marks: a question number and, where the heading names
+ * one, a part in canonical form ("Q5b(ii)" -> { number: "5", part: "bii" }, "Q2" ->
+ * { number: "2", part: "" }). Null for a heading that isn't a plain question number.
+ */
+export function dpLabelTarget(label: string): { number: string; part: string } | null {
+  const m = normaliseLabel(label).match(/^Q(\d+)([a-z]?)(?:\(([a-z]+)\))?$/);
+  if (!m) return null;
+  return { number: m[1], part: canonicalPart(`${m[2]}${m[3] ?? ""}`) };
 }
 
 /**

@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS assessments (
   paper_file TEXT, -- DP: path to uploaded paper (PDF/.docx)
   markscheme_file TEXT, -- DP: path to uploaded official markscheme (PDF/.docx)
   cover_targets TEXT, -- JSON string[] — learning targets parsed from the cover page
+  -- 1 = the teacher has said these papers carry no student names, so no name mask
+  -- is required and pages go to the AI as they are (a typed PDF is still checked
+  -- for roster names first). 0 = the page-1 mask is required, the safe default.
+  no_name_mask INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -92,6 +96,23 @@ CREATE TABLE IF NOT EXISTS rubrics (
   assessment_id INTEGER NOT NULL REFERENCES assessments(id),
   criterion TEXT NOT NULL, -- 'B', 'C' or 'D'
   content TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- The documents that define a B/C/D task, as many as it has: the task sheet, the
+-- template the students started from, the rubric or checklist, an exemplar, a
+-- worked solution, guidance. No two tasks come with the same set, which is why
+-- this is a list rather than one column per kind. `text` is what the grader
+-- reads — extracted on upload, with any roster name already taken out, and
+-- editable afterwards.
+CREATE TABLE IF NOT EXISTS task_documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  assessment_id INTEGER NOT NULL REFERENCES assessments(id),
+  kind TEXT NOT NULL CHECK (kind IN ('task', 'template', 'rubric', 'exemplar', 'solution', 'other')),
+  original_name TEXT NOT NULL,
+  file_path TEXT, -- project-relative, under data/papers/<assessment>/docs/
+  text TEXT NOT NULL,
+  used_vision INTEGER NOT NULL DEFAULT 0, -- 1 = a scan, read by the AI rather than from its text layer
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -143,12 +164,15 @@ CREATE TABLE IF NOT EXISTS sheet_marks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   submission_id INTEGER NOT NULL REFERENCES submissions(id) ON DELETE CASCADE,
   question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  -- A DP sheet can mark one part of a question ("b.ii", the markscheme's own
+  -- label); '' is the whole question, which is all an MYP sheet ever marks.
+  part TEXT NOT NULL DEFAULT '',
   points REAL NOT NULL,
   from_blank INTEGER NOT NULL DEFAULT 0, -- 1 = the sheet cell was empty, read as zero
   app_points REAL, -- the app's mark when the sheet was uploaded
   resolution TEXT CHECK (resolution IS NULL OR resolution IN ('mine', 'app')), -- NULL = still waiting
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (submission_id, question_id)
+  UNIQUE (submission_id, question_id, part)
 );
 
 CREATE TABLE IF NOT EXISTS criterion_levels (

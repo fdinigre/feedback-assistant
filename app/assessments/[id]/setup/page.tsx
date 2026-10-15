@@ -10,6 +10,7 @@ import {
   listQuestions,
   listRubrics,
   listSubmissions,
+  listTaskDocuments,
   listWorkedSolutions,
 } from "@/lib/db/queries";
 import { computeCompleteness } from "@/lib/assessment/completeness";
@@ -26,6 +27,7 @@ import {
 } from "@/lib/assessment/actions";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { NameMaskEditor } from "./_components/NameMaskEditor";
+import { NoNameMaskToggle } from "./_components/NoNameMaskToggle";
 import { LearningTargetCombobox } from "./_components/LearningTargetCombobox";
 import { PaperAutofill } from "./_components/PaperAutofill";
 import { WorkedSolutionUpload } from "./_components/WorkedSolutionUpload";
@@ -36,6 +38,9 @@ import { DpSetup } from "./_components/DpSetup";
 import { RemoveQuestionButton } from "./_components/RemoveQuestionButton";
 import { RubricDescriptorEditor } from "./_components/RubricDescriptorEditor";
 import { ProposeDescriptors } from "./_components/ProposeDescriptors";
+import { TaskDocuments } from "./_components/TaskDocuments";
+import { AnswerShape } from "./_components/AnswerShape";
+import { RUBRIC_SOURCE_KINDS } from "@/lib/assessment/task-document-kinds";
 import { paperPreviewPageCount } from "@/lib/assessment/paper-preview";
 
 export default async function AssessmentSetupPage({
@@ -96,6 +101,18 @@ export default async function AssessmentSetupPage({
   // Every criterion judged against descriptors rather than arithmetic. C belongs here:
   // the grader already reads a Criterion C rubric, but there was nowhere to write one.
   const rubricCriteria = assessment.criteria.filter((c) => c === "B" || c === "C" || c === "D");
+  // A B or D task is defined by its documents — task sheet, template, checklist,
+  // exemplar — and no two come with the same set, so it gets a list of them where a
+  // test gets its one blank paper. (C alone never stands; with A it is a test.)
+  const isRubricTask = assessment.criteria.some((c) => c === "B" || c === "D");
+  const taskDocuments = isRubricTask ? listTaskDocuments(assessmentId) : [];
+  const descriptorSource: "documents" | "paper" | null = taskDocuments.some(
+    (d) => RUBRIC_SOURCE_KINDS.includes(d.kind)
+  )
+    ? "documents"
+    : assessment.paper_file
+      ? "paper"
+      : null;
   const fmTest = isFmTest(assessment);
   // The level band sorts a question into a Criterion A threshold band, so it is
   // only asked for when the assessment has Criterion A. Without it (and without
@@ -146,20 +163,42 @@ export default async function AssessmentSetupPage({
         )}
       </div>
 
-      {/* The blank test comes first: it fills the question list in, and the
-          name mask is far easier to place once its pages can be previewed. */}
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold text-slate-900">Blank test</h2>
-        {assessment.paper_file && (
-          <p className="mt-1 text-sm text-emerald-700">
-            A blank test is uploaded ({/\.docx$/i.test(assessment.paper_file) ? "Word" : "PDF"}). Upload
-            again to replace it; questions already in the list are kept.
+      {isRubricTask ? (
+        /* A B/D task: every document it came with, read by the grader beside the work. */
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold text-slate-900">Task documents</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Everything this task came with. The grader reads all of them beside every
+            student&apos;s work, each the way its label says: the template&apos;s headings are not
+            the student&apos;s writing, an exemplar shows a standard rather than the only route to
+            it, and the descriptors below decide the level.
           </p>
-        )}
-        <div className="mt-3">
-          <PaperAutofill assessmentId={assessmentId} />
-        </div>
-      </section>
+          {assessment.paper_file && !taskDocuments.some((d) => d.file_path === assessment.paper_file) && (
+            <p className="mt-2 text-sm text-slate-600">
+              The task paper uploaded earlier is still on file — its questions are below. Add it
+              here too if the grader should read it.
+            </p>
+          )}
+          <div className="mt-3">
+            <TaskDocuments assessmentId={assessmentId} documents={taskDocuments} />
+          </div>
+        </section>
+      ) : (
+        /* The blank test comes first: it fills the question list in, and the
+           name mask is far easier to place once its pages can be previewed. */
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold text-slate-900">Blank test</h2>
+          {assessment.paper_file && (
+            <p className="mt-1 text-sm text-emerald-700">
+              A blank test is uploaded ({/\.docx$/i.test(assessment.paper_file) ? "Word" : "PDF"}). Upload
+              again to replace it; questions already in the list are kept.
+            </p>
+          )}
+          <div className="mt-3">
+            <PaperAutofill assessmentId={assessmentId} />
+          </div>
+        </section>
+      )}
 
       {/* Name mask */}
       <section className="mt-10">
@@ -168,18 +207,26 @@ export default async function AssessmentSetupPage({
           Defines the region blacked out before a scan is sent to the AI. Page 1 is required; add a
           second page if the name is repeated there (e.g. a header on page 2).
         </p>
-        {(() => {
-          const preview = listSubmissions(assessmentId).find((s) => (s.page_count ?? 0) >= 1) ?? null;
-          return (
-            <NameMaskEditor
-              assessmentId={assessmentId}
-              masks={assessment.name_masks}
-              paperPageCount={paperPreviewPageCount(assessment.id, assessment.paper_file)}
-              previewSubmissionId={preview?.id ?? null}
-              previewPageCount={preview?.page_count ?? 0}
-            />
-          );
-        })()}
+        <NoNameMaskToggle assessmentId={assessmentId} on={assessment.no_name_mask} />
+        {!assessment.no_name_mask && isRubricTask && !assessment.paper_file && (
+          <p className="mt-2 text-sm text-slate-600">
+            When the students hand in their own document rather than a paper of yours, upload one
+            student&apos;s work on the submissions page first: the mask is then placed on their page 1.
+          </p>
+        )}
+        {!assessment.no_name_mask &&
+          (() => {
+            const preview = listSubmissions(assessmentId).find((s) => (s.page_count ?? 0) >= 1) ?? null;
+            return (
+              <NameMaskEditor
+                assessmentId={assessmentId}
+                masks={assessment.name_masks}
+                paperPageCount={paperPreviewPageCount(assessment.id, assessment.paper_file)}
+                previewSubmissionId={preview?.id ?? null}
+                previewPageCount={preview?.page_count ?? 0}
+              />
+            );
+          })()}
       </section>
 
       {/* Questions */}
@@ -191,6 +238,12 @@ export default async function AssessmentSetupPage({
             {hasVariants ? ` · modified version: ${modifiedTotal} points` : ""}
           </span>
         </div>
+        {isRubricTask && questions.length === 0 && (
+          <AnswerShape
+            assessmentId={assessmentId}
+            hasTaskSheet={taskDocuments.some((d) => d.kind === "task")}
+          />
+        )}
         {fmTest && (
           <p className="mt-1 text-sm text-slate-600">
             Scored as points out of {totalPoints}. Upload the blank test above to fill the list in,
@@ -357,11 +410,15 @@ export default async function AssessmentSetupPage({
         <p className="mt-1 text-sm text-slate-600">
           {fmTest
             ? "The key the grader marks against: answers, mark splits, and the rubric for any short-answer question. Have the app propose one from the blank test (and your Word key, if you upload one), then approve or edit it."
-            : "Whole-assessment notes: full/partial credit rules, including follow-through."}
+            : isRubricTask
+              ? "Not needed when an exemplar or a worked solution is among the task documents above. Write here anything they don't say — what you will accept, how follow-through works on this task."
+              : "Whole-assessment notes: full/partial credit rules, including follow-through."}
         </p>
-        <div className="mt-3">
-          <WorkedSolutionUpload assessmentId={assessmentId} />
-        </div>
+        {!isRubricTask && (
+          <div className="mt-3">
+            <WorkedSolutionUpload assessmentId={assessmentId} />
+          </div>
+        )}
         {fmTest && (
           <div className="mt-3">
             <ProposeKey
@@ -432,12 +489,9 @@ export default async function AssessmentSetupPage({
             usually asks for several things at once, so it is split into one requirement per row:
             the grader says which were met and you tick them off while reviewing, and the level
             stays yours to set. Most tasks print this table, so it can be read straight off the
-            paper.
+            task.
           </p>
-          <ProposeDescriptors
-            assessmentId={assessmentId}
-            hasPaper={assessment.paper_file !== null}
-          />
+          <ProposeDescriptors assessmentId={assessmentId} source={descriptorSource} />
           <div className="mt-3 space-y-8">
             {rubricCriteria.map((c) => {
               const rubric = rubrics.find((r) => r.criterion === c);

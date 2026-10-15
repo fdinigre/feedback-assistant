@@ -4,6 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { warningFix } from "@/lib/intake/warning-fix";
 import { useHashJump } from "./useHashJump";
+import { useTranscriptAutosave } from "./useTranscriptAutosave";
+import {
+  acceptQuestionAsIs,
+  editStepText,
+  markFlagUnreadable,
+  resolveFlag,
+  toggleStepOmitted,
+  acceptLineAsIs,
+} from "@/lib/submissions/transcript-edits";
 import { useRouter } from "next/navigation";
 import type {
   AssessmentRow,
@@ -195,15 +204,11 @@ export function ReviewClient({
     if (next) setSelectedQuestionId(next.id);
   }
 
-  const [savingTranscript, setSavingTranscript] = useState<Record<number, boolean>>({});
   const [savingGrading, setSavingGrading] = useState<Record<number, boolean>>({});
   const [savingLevel, setSavingLevel] = useState<Record<string, boolean>>({});
   const [savingReport, setSavingReport] = useState(false);
   const [approving, setApproving] = useState(false);
 
-  const [transcriptStatus, setTranscriptStatus] = useState<Record<number, SaveStatus | undefined>>(
-    {}
-  );
   const [gradingStatus, setGradingStatus] = useState<Record<number, SaveStatus | undefined>>({});
   const [levelStatus, setLevelStatus] = useState<Record<string, SaveStatus | undefined>>({});
 
@@ -221,53 +226,12 @@ export function ReviewClient({
     }, 2000);
   }
 
-  async function saveTranscript(questionId: number) {
-    const raw = transcriptMap[questionId];
-    if (!raw) return;
-    // Saving the question means "I've reviewed these steps": auto-resolve any illegible
-    // flag still pending, using the current step text. A step that is still blank or
-    // holds a "[?]" placeholder is treated as unreadable (no credit) rather than guessed.
-    const content = {
-      ...raw,
-      illegible: raw.illegible.map((f) => {
-        if (f.resolvedText !== undefined) return f;
-        const stepText = raw.steps[f.stepIndex]?.text ?? "";
-        const usable = stepText.trim() !== "" && !stepText.includes("[?]");
-        return { ...f, resolvedText: usable ? stepText : "" };
-      }),
-    };
-    setSavingTranscript((s) => ({ ...s, [questionId]: true }));
-    setTranscriptStatus((s) => ({ ...s, [questionId]: undefined }));
-    try {
-      const res = await fetch("/api/review/transcript", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submissionId: submission.id, questionId, content }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        // Reflect exactly what the server persisted — never leave the field
-        // showing something other than the saved value.
-        setTranscriptMap((m) => ({ ...m, [questionId]: json.transcript.content }));
-        flashSuccess(questionId, setTranscriptStatus);
-      } else {
-        const json = await res.json().catch(() => null);
-        setTranscriptStatus((s) => ({
-          ...s,
-          [questionId]: {
-            kind: "error",
-            message: (json && (json.error as string)) ?? `Save failed (${res.status}).`,
-          },
-        }));
-      }
-    } catch {
-      setTranscriptStatus((s) => ({
-        ...s,
-        [questionId]: { kind: "error", message: "Network error — could not reach the server." },
-      }));
-    } finally {
-      setSavingTranscript((s) => ({ ...s, [questionId]: false }));
-    }
+  // Transcript edits save themselves a moment after the last change.
+  const autosave = useTranscriptAutosave(submission.id, transcriptMap);
+  /** Applies an edit to one question's transcript and queues it to save. */
+  function editTranscript(questionId: number, edit: (t: TranscriptQuestion) => TranscriptQuestion) {
+    autosave.markDirty(questionId);
+    setTranscriptMap((m) => (m[questionId] ? { ...m, [questionId]: edit(m[questionId]) } : m));
   }
 
   // Marks on the teacher's uploaded sheet that disagree with the app's, by question.
@@ -759,66 +723,25 @@ export function ReviewClient({
                     difference={differenceByQuestionId.get(q.id) ?? null}
                     settling={!!settling[q.id]}
                     onSettleDifference={(choice) => settleDifference(q.id, choice)}
-                    savingTranscript={!!savingTranscript[q.id]}
+                    savingTranscript={autosave.stateOf(q.id).saving}
                     savingGrading={!!savingGrading[q.id]}
-                    transcriptStatus={transcriptStatus[q.id]}
+                    transcriptStatus={autosave.stateOf(q.id).status}
                     gradingStatus={gradingStatus[q.id]}
                     onStepTextChange={(stepIndex, text) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const steps = current.steps.map((s, i) =>
-                          i === stepIndex ? { ...s, text } : s
-                        );
-                        // Editing an amber step also resolves any illegible flag on that
-                        // step — the corrected step text IS the resolution, so it never
-                        // has to be retyped in the red box. (Untouched if marked unreadable.)
-                        // Clearing it to nothing is NOT a resolution: emptying a line is
-                        // how she says it does not belong, which is what the button beside
-                        // it is for, so the flag is left alone rather than being saved as
-                        // "unreadable".
-                        const illegible =
-                          text.trim() === ""
-                            ? current.illegible
-                            : current.illegible.map((f) =>
-                                f.stepIndex === stepIndex && f.resolvedText !== ""
-                                  ? { ...f, resolvedText: text }
-                                  : f
-                              );
-                        return { ...m, [q.id]: { ...current, steps, illegible } };
-                      })
+                      editTranscript(q.id, (t) => editStepText(t, stepIndex, text))
                     }
                     onToggleStepOmitted={(stepIndex) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const steps = current.steps.map((s, i) =>
-                          i === stepIndex ? { ...s, omitted: !s.omitted } : s
-                        );
-                        return { ...m, [q.id]: { ...current, steps } };
-                      })
+                      editTranscript(q.id, (t) => toggleStepOmitted(t, stepIndex))
                     }
                     onIllegibleResolvedTextChange={(flagIndex, text) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const illegible = current.illegible.map((f, i) =>
-                          i === flagIndex ? { ...f, resolvedText: text } : f
-                        );
-                        return { ...m, [q.id]: { ...current, illegible } };
-                      })
+                      editTranscript(q.id, (t) => resolveFlag(t, flagIndex, text))
                     }
                     onMarkUnreadable={(flagIndex) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const illegible = current.illegible.map((f, i) =>
-                          i === flagIndex ? { ...f, resolvedText: "" } : f
-                        );
-                        return { ...m, [q.id]: { ...current, illegible } };
-                      })
+                      editTranscript(q.id, (t) => markFlagUnreadable(t, flagIndex))
                     }
-                    onSaveTranscript={() => saveTranscript(q.id)}
+                    onUseLineAsIs={(flagIndex) => editTranscript(q.id, (t) => acceptLineAsIs(t, flagIndex))}
+                    onAcceptAsItStands={() => editTranscript(q.id, acceptQuestionAsIs)}
+                    onSaveTranscript={() => autosave.saveNow(q.id)}
                     onFinalPointsChange={(points) =>
                       setGradingMap((m) => {
                         const current = m[q.id];

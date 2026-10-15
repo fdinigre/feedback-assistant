@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { insertAiRequest, updateAiRequestResponse } from "@/lib/db/queries";
 import { nameRegex } from "@/lib/pipeline/guards";
+import type { AccountStatus } from "@/lib/ai/gemini";
 
 /**
  * Locates the `claude` CLI so the app is portable across machines (e.g. a home
@@ -43,6 +44,56 @@ function findForbiddenName(text: string, forbiddenNames: string[]): string | nul
     if (nameRegex(name, "i").test(text)) return name;
   }
   return null;
+}
+
+/**
+ * The environment to run the CLI in. Inherited Claude/Anthropic session vars are
+ * scrubbed: when this app is launched from inside a Claude Code session, those
+ * vars point the CLI at the parent session's proxy/auth and break authentication
+ * (401). A clean child env makes the CLI use the user's own login (keychain),
+ * same as running `claude` in their terminal.
+ */
+function cleanClaudeEnv(): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV };
+  for (const [key, value] of Object.entries(process.env)) {
+    if (/^(ANTHROPIC_|CLAUDE)/i.test(key)) continue;
+    if (key === "BAGGAGE" || key === "AI_AGENT") continue;
+    if (/^USE_(LOCAL|STAGING)_OAUTH$/.test(key)) continue;
+    childEnv[key] = value;
+  }
+  return childEnv;
+}
+
+/**
+ * Which Claude account the CLI is signed in to, for the Settings page, from
+ * `claude auth status` — local, no request sent.
+ */
+export function claudeAccountStatus(): Promise<AccountStatus> {
+  return new Promise((resolve) => {
+    let out = "";
+    // A missing command arrives as the "error" event below, not as a throw.
+    const child = spawn(CLAUDE_BIN, ["auth", "status"], { cwd: process.cwd(), env: cleanClaudeEnv() });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.stdout.on("data", (chunk: Buffer) => (out += chunk.toString("utf-8")));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      const missing = (err as NodeJS.ErrnoException).code === "ENOENT";
+      resolve({ state: missing ? "not-installed" : "error", email: null, message: err.message });
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const status = JSON.parse(out) as { loggedIn?: boolean; email?: string; subscriptionType?: string };
+        resolve(
+          status.loggedIn
+            ? { state: "ok", email: status.email ?? null, plan: status.subscriptionType ?? null }
+            : { state: "not-signed-in", email: null }
+        );
+      } catch {
+        resolve({ state: "error", email: null, message: "Couldn't read the sign-in status." });
+      }
+    });
+  });
 }
 
 export type RunClaudeOptions = {
@@ -109,16 +160,7 @@ export async function runClaude(opts: RunClaudeOptions): Promise<string> {
     args.push("--add-dir", path.join(process.cwd(), "data"));
   }
 
-  // Scrub inherited Claude/Anthropic session vars: when this app is launched from
-  // inside a Claude Code session, those vars point the CLI at the parent session's
-  // proxy/auth and break authentication (401). A clean child env makes the CLI use
-  // the user's own login (keychain), same as running `claude` in their terminal.
-  const childEnv: NodeJS.ProcessEnv = { NODE_ENV: process.env.NODE_ENV };
-  for (const [key, value] of Object.entries(process.env)) {
-    if (/^(ANTHROPIC_|CLAUDE)/i.test(key)) continue;
-    if (key === "BAGGAGE" || key === "AI_AGENT") continue;
-    childEnv[key] = value;
-  }
+  const childEnv = cleanClaudeEnv();
 
   const response = await new Promise<string>((resolve, reject) => {
     const child = spawn(CLAUDE_BIN, args, {
@@ -155,7 +197,7 @@ export async function runClaude(opts: RunClaudeOptions): Promise<string> {
         new Error(
           notInstalled
             ? "AI is unavailable: the 'claude' command isn't installed on this computer. " +
-              "Install it and sign in to use transcription, grading and reports — everything else works without it."
+              "Install it by running  curl -fsSL https://claude.ai/install.sh | bash  in Terminal, then sign in with  ~/.local/bin/claude auth login  (it needs a Claude Pro or Max account), or switch to Gemini in Settings → AI. Everything else works without it."
             : `AI is unavailable: could not start the 'claude' command (${err.message}).`
         )
       );
@@ -175,7 +217,8 @@ export async function runClaude(opts: RunClaudeOptions): Promise<string> {
           new Error(
             isAuth
               ? "AI is unavailable: the 'claude' command isn't signed in on this computer. " +
-                "Open Terminal, run `claude`, and log in once — then try again. Everything else works without it."
+                "In Terminal, run  ~/.local/bin/claude auth login  and sign in once — then try again, " +
+                "or switch to Gemini in Settings → AI. Everything else works without it."
               : `AI is unavailable: the 'claude' command failed (exit ${code}). Details: ${detail}`
           )
         );

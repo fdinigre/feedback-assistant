@@ -92,19 +92,45 @@ export function accountFromAgyLog(log: string): string | null {
 const ACCOUNT_TTL_MS = 5 * 60 * 1000;
 let accountCache: { email: string; listing: string; at: number } | null = null;
 
-async function checkSchoolAccount(): Promise<string> {
-  if (accountCache && Date.now() - accountCache.at < ACCOUNT_TTL_MS) return accountCache.listing;
-
+/** Signs in with `agy models` (no prompt sent) and reads back which account it used. */
+async function readAgyAccount(): Promise<{ email: string | null; listing: string }> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agy-account-"));
-  let listing: string;
-  let email: string | null;
   try {
     const logFile = path.join(dir, "agy.log");
-    listing = await runAgy(["--log-file", logFile, "models"], dir, "account check", 60_000);
-    email = fs.existsSync(logFile) ? accountFromAgyLog(fs.readFileSync(logFile, "utf8")) : null;
+    const listing = await runAgy(["--log-file", logFile, "models"], dir, "account check", 60_000);
+    const email = fs.existsSync(logFile) ? accountFromAgyLog(fs.readFileSync(logFile, "utf8")) : null;
+    return { email, listing };
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+export type AccountStatus = {
+  state: "ok" | "wrong-account" | "not-signed-in" | "not-installed" | "error";
+  email: string | null;
+  /** For Claude, the plan ("max", "pro"); not known for Gemini. */
+  plan?: string | null;
+  message?: string;
+};
+
+/** Which Google account Gemini would mark through, for the Settings page. Sends no prompt. */
+export async function geminiAccountStatus(): Promise<AccountStatus> {
+  try {
+    const { email } = await readAgyAccount();
+    if (!email) return { state: "not-signed-in", email: null };
+    return { state: isSchoolAccount(email) ? "ok" : "wrong-account", email };
+  } catch (err) {
+    if (err instanceof GeminiSetupError) {
+      return { state: err.problem === "not-installed" ? "not-installed" : "not-signed-in", email: null };
+    }
+    return { state: "error", email: null, message: (err as Error).message };
+  }
+}
+
+async function checkSchoolAccount(): Promise<string> {
+  if (accountCache && Date.now() - accountCache.at < ACCOUNT_TTL_MS) return accountCache.listing;
+
+  const { email, listing } = await readAgyAccount();
 
   const school = ALLOWED_GOOGLE_DOMAINS[0];
   if (!email) {
@@ -208,6 +234,11 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
       clearTimeout(timer);
       if (code !== 0) {
         const detail = stderr.trim() || stdout.trim() || "(no output)";
+        const quota = quotaMessage(detail);
+        if (quota) {
+          reject(new Error(quota));
+          return;
+        }
         // No "permission" here: agy also reports a refused tool call that way,
         // and that is not something signing in again would fix.
         const isAuth = /login|log ?in|auth|oauth|credential|api[_ ]?key|unauthenticated|sign ?in/i.test(detail);
@@ -226,6 +257,30 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
       resolve(stdout);
     });
   });
+}
+
+/**
+ * A plain sentence for Google's "Individual quota reached ... Resets in 167h4m46s"
+ * (RESOURCE_EXHAUSTED, HTTP 429), or null when the failure is something else. The
+ * raw error reads like the app is broken; what the teacher needs is when it comes
+ * back, and that Claude is one click away in the meantime.
+ */
+export function quotaMessage(detail: string): string | null {
+  if (!/RESOURCE_EXHAUSTED|quota (reached|exceeded)|code 429/i.test(detail)) return null;
+  const m = /Resets in (?:(\d+)h)?(?:(\d+)m)?/i.exec(detail);
+  const hours = m ? Number(m[1] ?? 0) + Number(m[2] ?? 0) / 60 : null;
+  const when =
+    hours === null
+      ? ""
+      : hours >= 36
+        ? ` It resets in about ${Math.round(hours / 24)} days.`
+        : hours >= 1
+          ? ` It resets in about ${Math.round(hours)} hour${Math.round(hours) === 1 ? "" : "s"}.`
+          : " It resets within the hour.";
+  return (
+    `Gemini's usage limit for this Google account has been reached, so nothing was sent.${when}` +
+    " To keep marking now, switch to Claude in Settings → AI (it needs a Claude Pro or Max account)."
+  );
 }
 
 /**

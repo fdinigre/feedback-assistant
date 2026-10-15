@@ -29,7 +29,9 @@ import type {
   TranscriptQuestion,
 } from "@/lib/types";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
+import { blockingFlags } from "@/lib/submissions/review-state";
 import { descriptorKey, recordDescriptorChecks, type DescriptorJudgment } from "@/lib/marking/descriptor-checks";
+import { taskDocumentsForGrading } from "@/lib/assessment/task-documents";
 import { runClaudeJson } from "@/lib/pipeline/run";
 
 /** Thrown when the precondition fails: illegible flags still awaiting the teacher. */
@@ -117,7 +119,12 @@ export function renderResolvedTranscript(tq: TranscriptQuestion): string {
         if (flag.resolvedText && flag.resolvedText.trim() !== "") {
           return `  ${n}. ${flag.resolvedText}   [teacher-corrected illegible segment]`;
         }
-        return `  ${n}. ${step.text}   [UNGRADEABLE illegible segment — earns no credit: ${flag.note}]`;
+        if (flag.resolvedText === "") {
+          return `  ${n}. ${step.text}   [UNGRADEABLE illegible segment — earns no credit: ${flag.note}]`;
+        }
+        // Still open on a line read in full (an open "[?]" never gets this far):
+        // graded as written, with the reader's doubt beside it.
+        return `  ${n}. ${step.text}   [low confidence — the reader noted: ${flag.note}]`;
       }
       if (step.text.trimStart().startsWith(CROSSED_OUT_PREFIX)) {
         return `  ${n}. ${step.text}   [CROSSED OUT — the student cancelled this work: it earns no credit]`;
@@ -153,14 +160,15 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
   // ---- Precondition: every illegible flag resolved or explicitly ungradeable ----
   const unresolved: { questionNumber: string; stepIndex: number; note: string }[] = [];
   for (const t of transcripts) {
-    for (const f of t.content.illegible) {
-      if (f.resolvedText === undefined) {
-        unresolved.push({
-          questionNumber: t.content.questionNumber,
-          stepIndex: f.stepIndex,
-          note: f.note,
-        });
-      }
+    // Only an unreadable part still showing "[?]" holds the paper up. A flag on a
+    // line read in full, or on a line taken out of the answer, does not — the same
+    // rule the review screen colours by (lib/submissions/review-state.ts).
+    for (const f of blockingFlags(t.content)) {
+      unresolved.push({
+        questionNumber: t.content.questionNumber,
+        stepIndex: f.stepIndex,
+        note: f.note,
+      });
     }
   }
   if (unresolved.length > 0) throw new UnresolvedFlagsError(unresolved);
@@ -186,6 +194,9 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
 
   const criteria = assessment.criteria;
   const hasRubricCriteria = criteria.some((c) => c === "B" || c === "D");
+  // Everything the task came with — task sheet, template, checklist, exemplar — read
+  // by every pass, so the points, the C judgement and the B/D level all see the same task.
+  const taskDocuments = taskDocumentsForGrading(assessment.id);
 
   // Ordered list pairing each transcript with its question definition.
   const items = transcripts
@@ -216,6 +227,7 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
       perQuestionSolution,
       wholeNotes,
       rubricText: hasRubricCriteria ? collectRubrics(assessment.id, criteria) : "",
+      taskDocuments,
       wantsCommunication,
       communicationRubric,
       communicationDescriptors,
@@ -237,6 +249,7 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
       items,
       perQuestionSolution,
       wholeNotes,
+      taskDocuments,
       pass1,
     }),
   });
@@ -377,6 +390,7 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
           descriptors,
           items,
           pass1,
+          taskDocuments,
           aLevelAnchor: criterion === "C" ? aLevelForAnchor : null,
         }),
       });
@@ -422,7 +436,7 @@ const EVIDENCE_STYLE = `HOW TO WRITE EVIDENCE — these lines are read by the te
   correctly for figure 4 and figure 5", not "... for figure 4 (15 stars) and figure 5 (18 stars)".
 - Quote the student's own words ONLY where the wording itself is the evidence — a stated reason or
   conclusion, e.g. step 9 gives the structural reason ("stars were added in a \\ shape").
-- NEVER restate the worked solution's version or compare notations ("the key's rule s = 3n + 3").
+- NEVER restate the worked solution's (or an exemplar's) version or compare notations ("the key's rule s = 3n + 3").
   The teacher knows her own key; she is reading this to see what the STUDENT did.
 - Do NOT append caveats about slips that do not change the judgement.
 - One short clause per requirement, in the student's order of working.`;
@@ -472,6 +486,7 @@ function buildPass1Prompt(args: {
   perQuestionSolution: Map<number, string>;
   wholeNotes: string;
   rubricText: string;
+  taskDocuments?: string;
   wantsCommunication: boolean;
   communicationRubric?: string | null;
   communicationDescriptors?: RubricDescriptorRow[];
@@ -483,6 +498,7 @@ function buildPass1Prompt(args: {
     perQuestionSolution,
     wholeNotes,
     rubricText,
+    taskDocuments = "",
     wantsCommunication,
     communicationRubric,
     communicationDescriptors = [],
@@ -518,7 +534,7 @@ ${
 
 ${EVIDENCE_STYLE}
 
-${wholeNotes ? `WHOLE-ASSESSMENT WORKED-SOLUTION NOTES:\n${wholeNotes}\n` : ""}${rubricText ? `${rubricText}\n` : ""}
+${wholeNotes ? `WHOLE-ASSESSMENT WORKED-SOLUTION NOTES:\n${wholeNotes}\n` : ""}${rubricText ? `${rubricText}\n` : ""}${taskDocuments ? `${taskDocuments}\n` : ""}
 ${renderItemsBlock(items, perQuestionSolution)}
 ${
     wantsCommunication
@@ -574,9 +590,10 @@ function buildPass2Prompt(args: {
   items: { q: QuestionRow; tq: TranscriptQuestion }[];
   perQuestionSolution: Map<number, string>;
   wholeNotes: string;
+  taskDocuments?: string;
   pass1: Pass1Item[];
 }): string {
-  const { pseudonym, items, perQuestionSolution, wholeNotes, pass1 } = args;
+  const { pseudonym, items, perQuestionSolution, wholeNotes, taskDocuments = "", pass1 } = args;
   return `You are a SKEPTICAL SECOND MARKER re-checking a first marker's grading of student ${pseudonym}'s MYP mathematics assessment.
 Your job is ONLY to find where the first pass was too GENEROUS and to LOWER points where the student's actual work does not support them.
 You may NEVER raise a mark. If the evidence fully supports the first pass, keep the same number and leave conservativeArgument empty.
@@ -585,7 +602,7 @@ Be suspicious of: marks awarded despite missing justification, arithmetic the fi
 
 ${EVIDENCE_STYLE}
 
-${wholeNotes ? `WHOLE-ASSESSMENT WORKED-SOLUTION NOTES:\n${wholeNotes}\n` : ""}
+${wholeNotes ? `WHOLE-ASSESSMENT WORKED-SOLUTION NOTES:\n${wholeNotes}\n` : ""}${taskDocuments ? `${taskDocuments}\n` : ""}
 ${renderItemsBlock(items, perQuestionSolution)}
 
 FIRST-PASS GRADING TO SCRUTINIZE:
@@ -621,9 +638,10 @@ function buildLevelPrompt(args: {
   descriptors: RubricDescriptorRow[];
   items: { q: QuestionRow; tq: TranscriptQuestion }[];
   pass1: Pass1Item[];
+  taskDocuments?: string;
   aLevelAnchor?: number | null;
 }): string {
-  const { pseudonym, criterion, rubricContent, descriptors, items, pass1, aLevelAnchor } = args;
+  const { pseudonym, criterion, rubricContent, descriptors, items, pass1, taskDocuments = "", aLevelAnchor } = args;
   const anchorNote =
     aLevelAnchor != null
       ? `\nCALIBRATION (teacher's standing rule): Criterion C almost always lands within 1 level of Criterion A. ` +
@@ -648,7 +666,7 @@ ${
         ? `The band descriptors below are the rubric for Criterion ${criterion}.`
         : `No task-specific rubric is on file for Criterion ${criterion}. Judge the level from the communication/quality evidence noted during grading (clarity of method, use of notation, coherence of the mathematical argument).`
 }
-
+${taskDocuments ? `\n${taskDocuments}\n` : ""}
 PER-QUESTION EVIDENCE FROM GRADING (the points marking, for reference):
 ${evidenceBlock}
 ${

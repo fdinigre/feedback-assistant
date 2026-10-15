@@ -48,7 +48,9 @@ ensure_node_on_path || fail "The app's engine (Node.js) is missing. Run Install 
 
 stop_server() {
   local pids
-  pids="$(/usr/sbin/lsof -ti "tcp:$PORT" 2>/dev/null || true)"
+  # The server listening on the port — not every program connected to it, which
+  # would include the browser the app is open in.
+  pids="$(/usr/sbin/lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true)"
   [ -n "$pids" ] && { kill $pids 2>/dev/null || true; sleep 1; }
 }
 

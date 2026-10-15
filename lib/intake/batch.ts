@@ -91,6 +91,23 @@ export function clearMissingNameMaskWarnings(assessmentId: number): void {
 }
 
 /**
+ * Drops the transcription warnings that name one question ("Question 7 not found in
+ * scan — possible missing page", "Question 7: transcribed as sub-parts …") from every
+ * submission in an assessment. Called when that question is removed or renumbered:
+ * the warning was about a question that is no longer there under that number, and
+ * would otherwise keep sending the teacher to look for a missing page.
+ */
+export function dropQuestionWarnings(assessmentId: number, questionNumber: string): void {
+  const prefixes = [`Question ${questionNumber} `, `Question ${questionNumber}:`];
+  for (const s of listSubmissions(assessmentId)) {
+    const warnings = s.warnings ?? [];
+    const next = warnings.filter((w) => !prefixes.some((p) => w.startsWith(p)));
+    if (next.length === warnings.length) continue;
+    updateSubmission(s.id, { warnings: next.length > 0 ? next : null });
+  }
+}
+
+/**
  * Groups non-absent, assigned submissions by student_id and returns the set of
  * submission ids that share a student with at least one other submission
  * (spec edge case: two PDFs assigned to the same student).

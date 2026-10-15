@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import type { QuestionRow } from "@/lib/types";
 import { DpQuestionSchemeCard } from "./DpQuestionSchemeCard";
+import type { QuestionFootprint } from "./RemoveQuestionButton";
 import { approveParseAction, runMsParseAction, type DpFormState } from "../actions";
 
 const initialState: DpFormState = { error: null };
@@ -12,11 +13,13 @@ export function DpParseSection({
   questions,
   hasMarkscheme,
   parseApproved,
+  footprints,
 }: {
   assessmentId: number;
   questions: QuestionRow[];
   hasMarkscheme: boolean;
   parseApproved: boolean;
+  footprints: Record<number, QuestionFootprint>;
 }) {
   const parseAction = runMsParseAction.bind(null, assessmentId);
   const [state, formAction, pending] = useActionState(parseAction, initialState);
@@ -77,10 +80,30 @@ export function DpParseSection({
       ) : (
         <div className="space-y-4">
           {questions.map((q) => (
-            <DpQuestionSchemeCard key={q.id} assessmentId={assessmentId} question={q} />
+            <DpQuestionSchemeCard
+              key={q.id}
+              assessmentId={assessmentId}
+              question={q}
+              footprint={footprints[q.id] ?? { transcripts: 0, gradings: 0, students: 0 }}
+              duplicateOf={duplicateOf(q, questions)}
+            />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * The earlier question whose markscheme this one repeats exactly, or null. A parser
+ * that reads a question twice gives it a number of its own, and nothing else on the
+ * page would show it — the paper had no such question, so every student is "blank".
+ */
+function duplicateOf(question: QuestionRow, questions: QuestionRow[]): string | null {
+  const text = (q: QuestionRow) =>
+    (q.dp_scheme?.subparts ?? []).map((sp) => sp.scheme.trim()).join("\n");
+  const mine = text(question);
+  if (!mine) return null;
+  const earlier = questions.slice(0, questions.indexOf(question)).find((q) => text(q) === mine);
+  return earlier ? earlier.number : null;
 }

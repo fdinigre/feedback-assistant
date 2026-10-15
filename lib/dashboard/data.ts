@@ -1,4 +1,5 @@
 import "server-only";
+import { blockingFlags } from "@/lib/submissions/review-state";
 
 import {
   getClassesByProgramme,
@@ -34,11 +35,8 @@ export type NeedsAttentionItem = {
 function countUnresolvedIllegible(submissionId: number): number {
   const transcripts = listTranscripts(submissionId);
   let count = 0;
-  for (const t of transcripts) {
-    for (const flag of t.content.illegible) {
-      if (flag.resolvedText === undefined) count++;
-    }
-  }
+  // Only what grading waits for: an unreadable "[?]" still open on a line in the answer.
+  for (const t of transcripts) count += blockingFlags(t.content).length;
   return count;
 }
 

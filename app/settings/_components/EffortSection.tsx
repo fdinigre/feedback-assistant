@@ -57,8 +57,8 @@ export function EffortSection({
       </p>
       {!onGemini && (
         <p className="mt-2 text-sm text-amber-800">
-          This copy runs on Claude, so these have no effect here. They apply on copies that run on
-          Gemini.
+          Claude is doing the marking (see AI above), so these have no effect until you switch back
+          to Gemini.
         </p>
       )}
       <div className="mt-3 divide-y divide-slate-200 rounded-md border border-slate-200 bg-white">

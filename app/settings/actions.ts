@@ -12,6 +12,9 @@ import {
 } from "@/lib/db/queries";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import { EFFORT_SETTING_KEY, parseEffort, type EffortKind } from "@/lib/ai/effort";
+import { AI_PROVIDER_SETTING, parseAiProvider } from "@/lib/ai/provider";
+import { claudeAccountStatus } from "@/lib/ai/claude";
+import { geminiAccountStatus, type AccountStatus } from "@/lib/ai/gemini";
 
 export type StyleExampleFormState = { error: string | null };
 
@@ -86,4 +89,26 @@ export async function saveEffortAction(kind: EffortKind, value: string): Promise
   setAppSetting(EFFORT_SETTING_KEY[kind], effort);
   revalidatePath("/settings");
   return { error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Which AI marks — the switch in Settings → AI
+// ---------------------------------------------------------------------------
+
+/** Takes effect on the next AI request; nothing has to restart. */
+export async function saveAiProviderAction(value: string): Promise<{ error: string | null }> {
+  const provider = parseAiProvider(value);
+  if (!provider) return { error: "That isn't one of the AIs the app can use." };
+  setAppSetting(AI_PROVIDER_SETTING, provider);
+  revalidatePath("/settings");
+  return { error: null };
+}
+
+/**
+ * Who each AI is signed in as. Asked for after the page has loaded: Gemini's
+ * answer means signing in, which takes a few seconds, and neither sends a prompt.
+ */
+export async function aiAccountsAction(): Promise<{ gemini: AccountStatus; claude: AccountStatus }> {
+  const [gemini, claude] = await Promise.all([geminiAccountStatus(), claudeAccountStatus()]);
+  return { gemini, claude };
 }

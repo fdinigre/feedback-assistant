@@ -55,7 +55,7 @@ export async function processUploadedPdf(
         const maskedPath = path.join(outDir, `page-${mask.page}-masked.png`);
         await applyNameMask(src, mask, maskedPath);
       }
-    } else {
+    } else if (!assessment.no_name_mask) {
       warnings = warningsForMissingNameMask(null);
     }
 

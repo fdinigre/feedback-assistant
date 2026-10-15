@@ -11,8 +11,10 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@xmldom/xmldom": "^0.8.15",
     "better-sqlite3": "^12.11.1",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.2",
     "mammoth": "^1.12.0",
     "mupdf": "^1.28.0",
     "next": "16.4.0",

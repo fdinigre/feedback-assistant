@@ -6,9 +6,11 @@ import {
   listQuestions,
   listRubricDescriptors,
   listRubrics,
+  listTaskDocuments,
   listWorkedSolutions,
   updateAssessment,
 } from "@/lib/db/queries";
+import { REFERENCE_KINDS } from "./task-document-kinds";
 import { bandLevels, usesLevelThresholds } from "./bands";
 import type { AssessmentRow } from "@/lib/types";
 import { isParseApproved } from "./dp-paths";
@@ -49,7 +51,7 @@ function computeDpCompleteness(assessmentId: number): SetupCompleteness {
     missing.push("A valid grade boundary table (7 bands, grade 1 at 0%).");
   }
 
-  if (!assessment.name_mask) {
+  if (!assessment.name_mask && !assessment.no_name_mask) {
     missing.push("The name mask (page 1 handwritten-name region).");
   }
 
@@ -100,8 +102,18 @@ export function computeCompleteness(assessmentId: number): SetupCompleteness {
   const hasWholeAssessmentSolution = listWorkedSolutions(assessmentId).some(
     (ws) => ws.question_id === null && ws.content.trim().length > 0
   );
-  if (!hasWholeAssessmentSolution) {
-    missing.push("A whole-assessment worked solution.");
+  // A B/C/D task often comes with an exemplar or a worked solution as a document of
+  // its own. Either one is the reference the grader reads, so asking for the same
+  // thing again in the notes box would only hold the task up.
+  const hasReferenceDocument = listTaskDocuments(assessmentId).some(
+    (d) => REFERENCE_KINDS.includes(d.kind) && d.text.trim().length > 0
+  );
+  if (!hasWholeAssessmentSolution && !hasReferenceDocument) {
+    missing.push(
+      assessment.criteria.some((c) => c === "B" || c === "D")
+        ? "A worked solution or an exemplar (upload one with the task documents, or write notes under Worked solution)."
+        : "A whole-assessment worked solution."
+    );
   }
 
   // What the grader marks B and D against: the band descriptors read from the task,
@@ -119,8 +131,9 @@ export function computeCompleteness(assessmentId: number): SetupCompleteness {
   }
 
   // The name mask gates the privacy guarantee for scanned work — require it for MYP
-  // too (DP already does), so a paper can't be graded with the page-1 name unmasked.
-  if (!assessment.name_mask) {
+  // too (DP already does), so a paper can't be graded with the page-1 name unmasked —
+  // unless the teacher has said the papers carry no names at all.
+  if (!assessment.name_mask && !assessment.no_name_mask) {
     missing.push("The name mask (page 1 handwritten-name region).");
   }
 

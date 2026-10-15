@@ -12,7 +12,13 @@ import {
 import type { MarksUploadSummary } from "@/lib/types";
 import { buildMarksDiff } from "./diff";
 import { MarksSheetError, parseMarksSheet } from "./parse";
-import { applySheetMarks, keepAppMark, settleIfSheetAgrees, storeSheetDifferences } from "./pending";
+import {
+  applySheetMarks,
+  keepAppMark,
+  settleIfSheetAgrees,
+  storeSheetDifferences,
+  type SheetMarkKey,
+} from "./pending";
 
 /**
  * Marks-sheet import: upload → the sheet and its comparison are kept → the
@@ -60,6 +66,7 @@ export async function uploadMarksSheetAction(
       .map((c) => `${c.studentName} ${c.label} (${c.incoming}/${c.maxPoints})`),
     unmarked: diff.changes.filter((c) => !c.overMax && c.current === null).length,
     ignoredColumns: diff.ignoredColumns,
+    subtotalColumns: diff.subtotalColumns,
   };
 
   storeSheetDifferences(assessment, diff);
@@ -100,7 +107,7 @@ export type MarksApplyResult = {
  */
 export async function applySheetMarksAction(
   assessmentId: number,
-  keys: { submissionId: number; questionId: number }[]
+  keys: SheetMarkKey[]
 ): Promise<MarksApplyResult> {
   const assessment = getAssessment(assessmentId);
   if (!assessment) {
@@ -127,10 +134,10 @@ export async function applySheetMarksAction(
 }
 
 /** The teacher checked a difference and is keeping the app's mark. */
-export async function keepAppMarkAction(submissionId: number, questionId: number): Promise<void> {
+export async function keepAppMarkAction(submissionId: number, questionId: number, part = ""): Promise<void> {
   const submission = getSubmission(submissionId);
   if (!submission) return;
-  keepAppMark(submissionId, questionId);
+  keepAppMark(submissionId, questionId, part);
   settleIfSheetAgrees(submission.assessment_id, submissionId);
   revalidate(submission.assessment_id, [submissionId]);
 }

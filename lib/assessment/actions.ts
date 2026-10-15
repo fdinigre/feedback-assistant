@@ -18,6 +18,11 @@ import {
   insertQuestion,
   insertRubric,
   listRubricDescriptors,
+  listTaskDocuments,
+  getTaskDocument,
+  insertTaskDocument,
+  updateTaskDocument,
+  deleteTaskDocument,
   saveRubricDescriptors,
   type RubricDescriptorInput,
   insertWorkedSolution,
@@ -38,6 +43,7 @@ import type {
   LevelBand,
   NameMask,
   QuestionVariant,
+  TaskDocumentKind,
 } from "@/lib/types";
 import { ALL_CRITERIA, validateCriteria } from "./criteria";
 import { LEVEL_BANDS, usesLevelThresholds } from "./bands";
@@ -50,12 +56,25 @@ import { clearMissingNameMaskWarnings } from "@/lib/intake/batch";
 import { resolveStoredPath } from "./file-paths";
 import {
   extractMypPaper,
+  extractMypPaperFromText,
+  type PaperExtractResult,
   type ProposedRubric,
   extractWorkedSolutionsVision,
   extractWorkedSolutionText,
   saveMypPaper,
   saveWorkedSolutionFile,
 } from "./paper-extract";
+import {
+  extractRubricsFromDocuments,
+  readTaskDocument,
+  removeRosterNames,
+  saveTaskDocumentFile,
+} from "./task-documents";
+import {
+  guessTaskDocumentKind,
+  RUBRIC_SOURCE_KINDS,
+  TASK_DOCUMENT_KINDS,
+} from "./task-document-kinds";
 
 export type FormState = { error: string | null };
 
@@ -73,13 +92,17 @@ export type PaperExtractState = {
 
 export type ProposeDescriptorsState = {
   error: string | null;
-  result?: { criterion: string; added: number };
+  /** One entry per criterion the read filled in. */
+  results?: { criterion: string; added: number }[];
+  /** What the read could not place, or left alone — said rather than dropped. */
+  notes?: string[];
 };
 
 /**
  * Writes a rubric table read off the task paper, deciding which criterion it belongs to:
  * the letter the table names when the assessment assesses it, else the only criterion
- * marked on descriptors when there is just one.
+ * marked on descriptors when there is just one — or, on a C/D task, the one that is
+ * not C, since C is the companion criterion and its table is the one that gets labelled.
  *
  * It never overwrites: a criterion that already has descriptors is left alone and said
  * so, the way proposeAnswerKey refuses to write over the teacher's own key. Clearing
@@ -97,7 +120,18 @@ function persistProposedRubric(
     rubric.criterion && (rubricCriteria as string[]).includes(rubric.criterion)
       ? rubric.criterion
       : null;
-  const criterion = named ?? (rubricCriteria.length === 1 ? rubricCriteria[0] : null);
+  const mainCriteria = rubricCriteria.filter((c) => c !== "C");
+  const criterion =
+    named ??
+    (rubricCriteria.length === 1 ? rubricCriteria[0] : null) ??
+    (!rubric.criterion && mainCriteria.length === 1 ? mainCriteria[0] : null);
+  if (!criterion && rubric.criterion) {
+    return {
+      criterion: null,
+      added: 0,
+      error: `A Criterion ${rubric.criterion} table was found, but this assessment doesn't assess Criterion ${rubric.criterion}.`,
+    };
+  }
   if (!criterion) {
     return {
       criterion: null,
@@ -132,9 +166,9 @@ function persistProposedRubric(
 }
 
 /**
- * Reads the band descriptors off the task paper already on file, for an assessment
- * set up before the paper was read for them. Same proposal the question autofill makes,
- * without re-uploading anything.
+ * Reads the band descriptors off what is already on file: the task documents when
+ * there are any (every table across them, one per criterion — a C/D task can print
+ * both), else the task paper, for an assessment set up before task documents existed.
  */
 export async function proposeRubricDescriptorsAction(
   assessmentId: number,
@@ -142,27 +176,57 @@ export async function proposeRubricDescriptorsAction(
 ): Promise<ProposeDescriptorsState> {
   const assessment = getAssessment(assessmentId);
   if (!assessment) return { error: "Assessment not found." };
-  if (!assessment.paper_file) {
-    return { error: "Upload the task paper first (above, under Questions) — the descriptors are read from it." };
+  const sources = listTaskDocuments(assessmentId).filter(
+    (d) => RUBRIC_SOURCE_KINDS.includes(d.kind) && d.text.trim() !== ""
+  );
+  if (sources.length === 0 && !assessment.paper_file) {
+    return { error: "Upload the task documents first (above) — the descriptors are read from them." };
   }
-  // Refuse before spending a minute reading the paper, not after.
+  // Refuse before spending a minute reading the documents, not after.
   const openCriteria = assessment.criteria.filter(
     (c) => (c === "B" || c === "C" || c === "D") && listRubricDescriptors(assessmentId, c).length === 0
   );
   if (openCriteria.length === 0) {
     return {
       error:
-        "Every criterion already has band descriptors — edit them below, or clear a criterion's rows first to read the paper again.",
+        "Every criterion already has band descriptors — edit them below, or clear a criterion's rows first to read the documents again.",
     };
   }
   try {
-    const paperPath = resolveStoredPath(assessment.paper_file);
-    if (!paperPath) return { error: "The task paper is on file but its file is missing — upload it again." };
-    const result = await extractMypPaper(paperPath);
-    const written = persistProposedRubric(assessment, result.rubric);
-    if (written.error) return { error: written.error };
+    let rubrics: ProposedRubric[];
+    if (sources.length > 0) {
+      rubrics = await extractRubricsFromDocuments(sources);
+    } else {
+      const paperPath = resolveStoredPath(assessment.paper_file);
+      if (!paperPath) return { error: "The task paper is on file but its file is missing — upload it again." };
+      const rubric = (await extractMypPaper(paperPath)).rubric;
+      rubrics = rubric ? [rubric] : [];
+    }
+    if (rubrics.length === 0) {
+      return { error: "No achievement-level table could be read from the documents — add the rows by hand." };
+    }
+
+    const results: { criterion: string; added: number }[] = [];
+    const notes: string[] = [];
+    for (const rubric of rubrics) {
+      const written = persistProposedRubric(assessment, rubric);
+      if (written.error) notes.push(written.error);
+      else results.push({ criterion: written.criterion!, added: written.added });
+    }
+    if (results.length === 0) return { error: notes.join(" ") };
+    for (const c of openCriteria) {
+      if (listRubricDescriptors(assessmentId, c).length > 0) continue;
+      notes.push(
+        c === "C"
+          ? "There's no Criterion C table in the documents. Add its descriptors below, or leave them empty and C is judged on how clearly the work communicates, in general terms."
+          : `There's no Criterion ${c} table in the documents — add its descriptors below.`
+      );
+    }
+
+    syncAssessmentStatus(assessmentId);
     revalidatePath(`/assessments/${assessmentId}/setup`);
-    return { error: null, result: { criterion: written.criterion!, added: written.added } };
+    revalidatePath(`/assessments/${assessmentId}`);
+    return { error: null, results, notes };
   } catch (err) {
     return { error: (err as Error).message };
   }
@@ -207,6 +271,15 @@ export async function uploadMypPaperAndExtract(
     return { error: (err as Error).message };
   }
 
+  return addProposedQuestions(assessment, result);
+}
+
+/**
+ * Adds the questions read off a paper to the list — appended, never overwriting, and
+ * skipping any number already there — and fills in the rubric table it printed.
+ */
+function addProposedQuestions(assessment: AssessmentRow, result: PaperExtractResult): PaperExtractState {
+  const assessmentId = assessment.id;
   if (result.questions.length === 0) {
     return {
       error:
@@ -322,6 +395,204 @@ export async function uploadMypWorkedSolutions(
   revalidatePath(`/assessments/${assessmentId}/setup`);
   revalidatePath(`/assessments/${assessmentId}`);
   return { error: null, chars: text.length, usedVision };
+}
+
+// ---------------------------------------------------------------------------
+// task documents (B/C/D: as many as the task has)
+// ---------------------------------------------------------------------------
+
+export type TaskDocumentUploadState = {
+  error: string | null;
+  added?: {
+    name: string;
+    kind: TaskDocumentKind;
+    chars: number;
+    usedVision: boolean;
+    namesRemoved: number;
+  }[];
+  failed?: { name: string; message: string }[];
+};
+
+/**
+ * Takes several files in one go — the task sheet, the template, the checklist, an
+ * exemplar — reads each, and files it under a kind guessed from its name, which the
+ * teacher corrects in the list if the guess is wrong. A file that cannot be read is
+ * reported by name without stopping the others.
+ */
+export async function uploadTaskDocuments(
+  _prev: TaskDocumentUploadState,
+  formData: FormData
+): Promise<TaskDocumentUploadState> {
+  const assessmentId = Number(formData.get("assessmentId"));
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return { error: "Assessment not found." };
+  if (assessment.programme === "DP") return { error: "Task documents are for MYP tasks." };
+
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) return { error: "Choose one or more PDF or Word files first." };
+
+  const added: NonNullable<TaskDocumentUploadState["added"]> = [];
+  const failed: NonNullable<TaskDocumentUploadState["failed"]> = [];
+  let hasTaskSheet = listTaskDocuments(assessmentId).some((d) => d.kind === "task");
+
+  for (const file of files) {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".pdf") && !lower.endsWith(".docx")) {
+      failed.push({ name: file.name, message: "Only PDF or Word (.docx) files can be read." });
+      continue;
+    }
+    let absolute: string | null = null;
+    try {
+      const kind = guessTaskDocumentKind(file.name, hasTaskSheet);
+      const stored = saveTaskDocumentFile(assessmentId, file.name, Buffer.from(await file.arrayBuffer()));
+      absolute = resolveStoredPath(stored);
+      if (!absolute) throw new Error("The file could not be saved.");
+      const read = await readTaskDocument(absolute, kind);
+      if (!read.text) {
+        removeStoredDocument(absolute);
+        failed.push({ name: file.name, message: "Nothing could be read from it." });
+        continue;
+      }
+      const clean = removeRosterNames(read.text);
+      insertTaskDocument({
+        assessment_id: assessmentId,
+        kind,
+        original_name: file.name,
+        file_path: stored,
+        text: clean.text,
+        used_vision: read.usedVision,
+      });
+      if (kind === "task") hasTaskSheet = true;
+      added.push({
+        name: file.name,
+        kind,
+        chars: clean.text.length,
+        usedVision: read.usedVision,
+        namesRemoved: clean.removed.length,
+      });
+    } catch (err) {
+      if (absolute) removeStoredDocument(absolute);
+      failed.push({ name: file.name, message: (err as Error).message });
+    }
+  }
+
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
+  return {
+    error: added.length === 0 ? "None of the files could be read." : null,
+    added,
+    failed,
+  };
+}
+
+/** A document's file, and the page images a scanned one was read from. */
+function removeStoredDocument(absolute: string): void {
+  fs.rmSync(absolute, { force: true });
+  fs.rmSync(`${absolute}-pages`, { recursive: true, force: true });
+}
+
+/** Relabels one document, for when the guess from its file name was wrong. */
+export async function setTaskDocumentKind(
+  assessmentId: number,
+  documentId: number,
+  formData: FormData
+): Promise<void> {
+  const kind = String(formData.get("kind") ?? "") as TaskDocumentKind;
+  if (!TASK_DOCUMENT_KINDS.includes(kind)) return;
+  const doc = getTaskDocument(documentId);
+  if (!doc || doc.assessment_id !== assessmentId) return;
+  updateTaskDocument(documentId, { kind });
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
+}
+
+export type TaskDocumentTextState = { error: string | null; saved?: boolean; namesRemoved?: number };
+
+/**
+ * Saves the teacher's correction of what was read from a document. Roster names are
+ * taken out again on the way in: a name typed here would otherwise stop the grading.
+ */
+export async function saveTaskDocumentText(
+  assessmentId: number,
+  documentId: number,
+  _prev: TaskDocumentTextState,
+  formData: FormData
+): Promise<TaskDocumentTextState> {
+  const doc = getTaskDocument(documentId);
+  if (!doc || doc.assessment_id !== assessmentId) return { error: "That document is no longer here." };
+  const text = String(formData.get("text") ?? "").trim();
+  if (!text) return { error: "The text can't be empty — remove the document instead." };
+  const clean = removeRosterNames(text);
+  updateTaskDocument(documentId, { text: clean.text });
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  return { error: null, saved: true, namesRemoved: clean.removed.length };
+}
+
+/** Removes one document and its file. If its questions were read from it, the paper goes too. */
+export async function removeTaskDocument(assessmentId: number, documentId: number): Promise<void> {
+  const doc = getTaskDocument(documentId);
+  if (!doc || doc.assessment_id !== assessmentId) return;
+  deleteTaskDocument(documentId);
+  const absolute = resolveStoredPath(doc.file_path);
+  if (absolute) removeStoredDocument(absolute);
+  const assessment = getAssessment(assessmentId);
+  if (assessment && doc.file_path && assessment.paper_file === doc.file_path) {
+    updateAssessment(assessmentId, { paper_file: null });
+  }
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
+}
+
+/**
+ * For a task the students answer on, part by part: reads the questions off the
+ * task sheet already uploaded, the same way a blank test is read. The sheet becomes
+ * the assessment's paper, so the name mask can be placed on its pages.
+ */
+export async function readQuestionsFromTaskSheet(
+  assessmentId: number,
+  _prev: PaperExtractState
+): Promise<PaperExtractState> {
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return { error: "Assessment not found." };
+  const sheet = listTaskDocuments(assessmentId).find((d) => d.kind === "task");
+  if (!sheet) return { error: "Label one of the documents as the task sheet first." };
+  let result: PaperExtractResult;
+  try {
+    result = await extractMypPaperFromText(sheet.text);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  if (sheet.file_path) updateAssessment(assessmentId, { paper_file: sheet.file_path });
+  return addProposedQuestions(getAssessment(assessmentId) ?? assessment, result);
+}
+
+/**
+ * For a task handed in as one piece — a report, a GRASP task — with no numbered
+ * questions: one item stands for the whole of it, so the work is read and judged as
+ * a whole against the descriptors. Only offered while the list is empty, and never
+ * for Criterion A, whose level is built from points per question.
+ */
+export async function addWholeWorkItem(assessmentId: number, formData: FormData): Promise<void> {
+  const assessment = getAssessment(assessmentId);
+  if (!assessment || usesLevelThresholds(assessment)) return;
+  if (listQuestions(assessmentId).length > 0) return;
+  const label = String(formData.get("label") ?? "").trim() || "Report";
+  insertQuestion({
+    assessment_id: assessmentId,
+    number: label,
+    max_points: 1,
+    level_band: null,
+    learning_target_id: null,
+  });
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
 }
 
 export type ProposeKeyState = { error: string | null; result?: ProposeKeyResult };
@@ -493,6 +764,25 @@ export async function saveNameMasks(
   revalidatePath(`/assessments/${assessmentId}`);
   revalidatePath(`/assessments/${assessmentId}/submissions`);
   return { error: null };
+}
+
+/**
+ * The teacher's word that this task's papers carry no student names — a typed report
+ * handed in as a file, say — so no mask is required and pages go to the AI as they
+ * are. Masks already drawn are kept and still applied; turning this off asks for the
+ * page-1 mask again. A typed PDF is still checked for class-list names before it is
+ * sent (see transcribe.ts).
+ */
+export async function setNoNameMask(assessmentId: number, formData: FormData): Promise<void> {
+  if (!getAssessment(assessmentId)) return;
+  const on = formData.get("no_name_mask") === "on";
+  updateAssessment(assessmentId, { no_name_mask: on });
+  // The upload-time "page 1 not masked" warning no longer describes a problem.
+  if (on) clearMissingNameMaskWarnings(assessmentId);
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
+  revalidatePath(`/assessments/${assessmentId}/submissions`);
 }
 
 function clampPageNum(value: number): number {

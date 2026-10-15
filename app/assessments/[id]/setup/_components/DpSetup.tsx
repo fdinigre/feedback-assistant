@@ -1,8 +1,9 @@
-import { listLearningTargets, listQuestions, listSubmissions } from "@/lib/db/queries";
+import { getQuestionDataFootprint, listLearningTargets, listQuestions, listSubmissions } from "@/lib/db/queries";
 import { computeCompleteness } from "@/lib/assessment/completeness";
 import { isParseApproved } from "@/lib/assessment/dp-paths";
 import type { AssessmentRow } from "@/lib/types";
 import { NameMaskEditor } from "./NameMaskEditor";
+import { NoNameMaskToggle } from "./NoNameMaskToggle";
 import { DpFileUpload } from "./DpFileUpload";
 import { DpParseSection } from "./DpParseSection";
 import { DpCoverTargets } from "./DpCoverTargets";
@@ -82,6 +83,7 @@ export function DpSetup({ assessment }: { assessment: AssessmentRow }) {
           questions={questions}
           hasMarkscheme={!!assessment.markscheme_file}
           parseApproved={parseApproved}
+          footprints={Object.fromEntries(questions.map((q) => [q.id, getQuestionDataFootprint(q.id)]))}
         />
       </section>
 
@@ -121,18 +123,20 @@ export function DpSetup({ assessment }: { assessment: AssessmentRow }) {
           Defines the region blacked out before a scan is sent to the AI — same as MYP scans. Page 1
           is required; add a second page if the name is repeated there.
         </p>
-        {(() => {
-          const preview = listSubmissions(assessment.id).find((s) => (s.page_count ?? 0) >= 1) ?? null;
-          return (
-            <NameMaskEditor
-              assessmentId={assessment.id}
-              masks={assessment.name_masks}
-              paperPageCount={paperPreviewPageCount(assessment.id, assessment.paper_file)}
-              previewSubmissionId={preview?.id ?? null}
-              previewPageCount={preview?.page_count ?? 0}
-            />
-          );
-        })()}
+        <NoNameMaskToggle assessmentId={assessment.id} on={assessment.no_name_mask} />
+        {!assessment.no_name_mask &&
+          (() => {
+            const preview = listSubmissions(assessment.id).find((s) => (s.page_count ?? 0) >= 1) ?? null;
+            return (
+              <NameMaskEditor
+                assessmentId={assessment.id}
+                masks={assessment.name_masks}
+                paperPageCount={paperPreviewPageCount(assessment.id, assessment.paper_file)}
+                previewSubmissionId={preview?.id ?? null}
+                previewPageCount={preview?.page_count ?? 0}
+              />
+            );
+          })()}
       </section>
     </div>
   );

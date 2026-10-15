@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import * as mupdf from "mupdf";
 import mammoth from "mammoth";
+import { inlineDocxMath } from "./docx-math";
 
 /** Extracts text page-by-page from a PDF using mupdf's structured text extraction. */
 export function extractPdfPageTexts(filePath: string): string[] {
@@ -19,9 +20,17 @@ export function extractPdfPageTexts(filePath: string): string[] {
   return pages;
 }
 
-/** Extracts raw text from a .docx file. No page concept — returned as a single "page". */
+/**
+ * Extracts raw text from a .docx file. No page concept — returned as a single "page".
+ * Equations are turned into plain text first: the Word reader on its own drops them.
+ */
 export async function extractDocxText(filePath: string): Promise<string> {
-  const buffer = fs.readFileSync(filePath);
+  let buffer: Buffer = fs.readFileSync(filePath);
+  try {
+    buffer = await inlineDocxMath(buffer);
+  } catch {
+    // A file the equation pass can't open is still read as it was, maths aside.
+  }
   const result = await mammoth.extractRawText({ buffer });
   return result.value;
 }

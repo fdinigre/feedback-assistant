@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
+  getAssessment,
   getStudent,
   getSubmission,
-  listGradings,
   listQuestions,
   listSheetMarks,
   listSheetMarksForAssessment,
@@ -17,8 +17,8 @@ import type {
   SheetMarkRow,
 } from "@/lib/types";
 import { settleSubmission } from "@/lib/marking/settle";
-import { applyMarkChanges, type ApplyResult } from "./apply";
-import type { MarksDiff } from "./diff";
+import { applyDpMarkChanges, applyMarkChanges, type ApplyResult } from "./apply";
+import { currentMark, type MarksDiff } from "./diff";
 
 /**
  * Where the teacher's uploaded sheet disagreed with the app, kept until the
@@ -38,6 +38,7 @@ export function storeSheetDifferences(assessment: AssessmentRow, diff: MarksDiff
       .map((c) => ({
         submission_id: c.submissionId,
         question_id: c.questionId,
+        part: c.part,
         points: c.incoming,
         from_blank: c.fromBlank,
         app_points: c.current,
@@ -46,6 +47,8 @@ export function storeSheetDifferences(assessment: AssessmentRow, diff: MarksDiff
 }
 
 function toDifferences(assessmentId: number, rows: SheetMarkRow[]): SheetDifference[] {
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return [];
   const questionById = new Map(listQuestions(assessmentId).map((q) => [q.id, q]));
   const bySubmission = new Map<number, SheetMarkRow[]>();
   for (const row of rows) {
@@ -56,15 +59,10 @@ function toDifferences(assessmentId: number, rows: SheetMarkRow[]): SheetDiffere
   for (const [submissionId, marks] of bySubmission) {
     const submission = getSubmission(submissionId);
     const student = submission?.student_id ? getStudent(submission.student_id) : undefined;
-    const gradingByQuestion = new Map(listGradings(submissionId).map((g) => [g.question_id, g]));
-
     for (const mark of marks) {
       const question = questionById.get(mark.question_id);
       if (!question) continue;
-      const grading = gradingByQuestion.get(mark.question_id);
-      const current = grading
-        ? (grading.content.finalPoints ?? grading.content.conservativePoints)
-        : null;
+      const current = currentMark(assessment, question, mark.part, submissionId);
       // Agreement wins over the recorded choice: a mark typed in by hand on the
       // review page settles the difference just as the button does.
       const status: SheetDifferenceStatus =
@@ -82,7 +80,11 @@ function toDifferences(assessmentId: number, rows: SheetMarkRow[]): SheetDiffere
         studentName: student?.name ?? `Submission ${submissionId}`,
         questionId: question.id,
         questionNumber: question.number,
-        maxPoints: question.max_points,
+        part: mark.part,
+        maxPoints:
+          mark.part === ""
+            ? question.max_points
+            : (question.dp_scheme?.subparts.find((sp) => sp.label === mark.part)?.maxMarks ?? question.max_points),
         current,
         sheet: mark.points,
         fromBlank: mark.from_blank,
@@ -90,7 +92,8 @@ function toDifferences(assessmentId: number, rows: SheetMarkRow[]): SheetDiffere
     }
   }
   return differences.sort(
-    (a, b) => a.studentName.localeCompare(b.studentName) || a.questionId - b.questionId
+    (a, b) =>
+      a.studentName.localeCompare(b.studentName) || a.questionId - b.questionId || a.part.localeCompare(b.part)
   );
 }
 
@@ -111,28 +114,33 @@ export function listWaitingDifferencesForSubmission(
   );
 }
 
+/** Which difference a key names: a question, or one part of it ('' or absent = whole question). */
+export type SheetMarkKey = { submissionId: number; questionId: number; part?: string };
+
+const keyString = (k: { submissionId: number; questionId: number; part?: string }) =>
+  `${k.submissionId}:${k.questionId}:${k.part ?? ""}`;
+
 /**
- * Applies the teacher's stored sheet mark for each (submission, question) key.
+ * Applies the teacher's stored sheet mark for each (submission, question, part) key.
  * The mark comes from the database, never from the caller, so a request can
  * only ever apply what the teacher's own sheet said.
  */
-export function applySheetMarks(
-  assessment: AssessmentRow,
-  keys: { submissionId: number; questionId: number }[]
-): ApplyResult {
-  const wanted = new Set(keys.map((k) => `${k.submissionId}:${k.questionId}`));
+export function applySheetMarks(assessment: AssessmentRow, keys: SheetMarkKey[]): ApplyResult {
+  const wanted = new Set(keys.map(keyString));
   const chosen = listSheetDifferences(assessment.id).filter(
-    (d) => d.status !== "mine" && wanted.has(`${d.submissionId}:${d.questionId}`)
+    (d) => d.status !== "mine" && wanted.has(keyString(d))
   );
 
-  const result = applyMarkChanges(
+  const apply = assessment.programme === "DP" ? applyDpMarkChanges : applyMarkChanges;
+  const result = apply(
     assessment,
     chosen.map((d) => ({
       submissionId: d.submissionId,
       studentName: d.studentName,
       questionId: d.questionId,
       questionNumber: d.questionNumber,
-      label: `Q${d.questionNumber}`,
+      part: d.part,
+      label: `Q${d.questionNumber}${d.part}`,
       maxPoints: d.maxPoints,
       current: d.current,
       incoming: d.sheet,
@@ -140,13 +148,13 @@ export function applySheetMarks(
       overMax: false,
     }))
   );
-  for (const d of chosen) setSheetMarkResolution(d.submissionId, d.questionId, "mine");
+  for (const d of chosen) setSheetMarkResolution(d.submissionId, d.questionId, "mine", d.part);
   return result;
 }
 
 /** The teacher looked and prefers the app's mark: stop flagging the difference. */
-export function keepAppMark(submissionId: number, questionId: number): void {
-  setSheetMarkResolution(submissionId, questionId, "app");
+export function keepAppMark(submissionId: number, questionId: number, part = ""): void {
+  setSheetMarkResolution(submissionId, questionId, "app", part);
 }
 
 /**

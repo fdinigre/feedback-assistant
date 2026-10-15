@@ -12,6 +12,7 @@ import { IaChecklistSection } from "./_components/IaChecklistSection";
 import { AiRequestLog } from "./_components/AiRequestLog";
 import { aiProvider } from "@/lib/ai/provider";
 import { EffortSection } from "./_components/EffortSection";
+import { AiProviderSection } from "./_components/AiProviderSection";
 import { EFFORT_DEFAULTS, EFFORT_SETTING_KEY, parseEffort } from "@/lib/ai/effort";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +45,8 @@ export default function SettingsPage() {
 
       <IaChecklistSection checklist={iaChecklist} />
 
+      <AiProviderSection current={aiProvider()} />
+
       <EffortSection current={effort} onGemini={aiProvider() === "gemini"} />
 
       <section>
@@ -53,8 +56,9 @@ export default function SettingsPage() {
           {" "}{aiName} to be read — but names are replaced with pseudonyms and page 1&rsquo;s name area is
           masked first, and every outbound request is logged here before sending so you can open any
           prompt file and check. Note: only the pages you mask are hidden in the scan images (page 1
-          always, plus any page you add), and the guard checks text, not the pixels of unmasked
-          pages. Showing the last {aiRequests.length} request
+          always, plus any page you add — unless you set an assessment&rsquo;s papers as carrying no
+          names, when a typed PDF is checked for class-list names instead), and the guard checks
+          text, not the pixels of unmasked pages. Showing the last {aiRequests.length} request
           {aiRequests.length === 1 ? "" : "s"}.
         </p>
         <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 px-4">

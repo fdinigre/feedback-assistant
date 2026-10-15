@@ -4,6 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { warningFix } from "@/lib/intake/warning-fix";
 import { useHashJump } from "./useHashJump";
+import { useTranscriptAutosave } from "./useTranscriptAutosave";
+import {
+  acceptQuestionAsIs,
+  editStepText,
+  markFlagUnreadable,
+  resolveFlag,
+  toggleStepOmitted,
+  acceptLineAsIs,
+} from "@/lib/submissions/transcript-edits";
 import { useRouter } from "next/navigation";
 import type {
   AssessmentRow,
@@ -13,6 +22,7 @@ import type {
   ReportRow,
   ReportSections,
   SaveStatus,
+  SheetDifference,
   StudentRow,
   SubmissionRow,
   TranscriptQuestion,
@@ -26,6 +36,7 @@ import { DpQuestionPanel } from "./DpQuestionPanel";
 import { DpMarksSummary } from "./DpMarksSummary";
 import { DpOutputsPanel } from "./DpOutputsPanel";
 import { ReportEditor } from "./ReportEditor";
+import { applySheetMarksAction, keepAppMarkAction } from "@/lib/marks-import/actions";
 
 type PipelineEndpoint = "transcribe" | "grade" | "report";
 
@@ -76,6 +87,7 @@ export function DpReviewClient({
   transcripts,
   dpGradings,
   dpResult,
+  sheetDifferences,
   report,
   nav,
 }: {
@@ -86,6 +98,8 @@ export function DpReviewClient({
   transcripts: TranscriptRow[];
   dpGradings: DpGradingRow[];
   dpResult: DpResultRow | null;
+  /** Where the teacher's uploaded marks sheet disagrees with this paper, still to decide. */
+  sheetDifferences: SheetDifference[];
   report: ReportRow | null;
   nav: SubmissionNav;
 }) {
@@ -118,6 +132,59 @@ export function DpReviewClient({
   );
   const [result, setResult] = useState<DpResultRow | null>(dpResult);
   useHashJump();
+
+  // Every question is listed in the column beside the scan; a chip in the strip
+  // brings its question to the top of that column and rings it, the way the MYP
+  // strip opens one. #q-<id> from a link elsewhere lands on it the same way.
+  const [selectedQuestionId, setSelectedQuestionId] = useState<number | null>(null);
+  function showQuestion(id: number) {
+    setSelectedQuestionId(id);
+    document.getElementById(`q-${id}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }
+  useEffect(() => {
+    const match = /^#q-(\d+)$/.exec(window.location.hash);
+    if (!match) return;
+    const id = Number(match[1]);
+    if (!questions.some((q) => q.id === id)) return;
+    // Again after the scans above have loaded and pushed the list down.
+    const timers = [0, 300].map((ms) =>
+      setTimeout(() => {
+        setSelectedQuestionId(id);
+        document.getElementById(`q-${id}`)?.scrollIntoView({ block: "start" });
+      }, ms)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [questions]);
+
+  // The teacher's sheet against the app's marks, by question: a sheet can mark a
+  // DP question whole or part by part, so one question can carry several.
+  const differencesByQuestionId = new Map<number, (SheetDifference & { current: number })[]>();
+  for (const d of sheetDifferences) {
+    if (d.current === null) continue;
+    const list = differencesByQuestionId.get(d.questionId) ?? [];
+    list.push(d as SheetDifference & { current: number });
+    differencesByQuestionId.set(d.questionId, list);
+  }
+  const [settling, setSettling] = useState<Record<string, boolean>>({});
+
+  /** Settle a sheet difference: take the teacher's mark, or keep the app's. */
+  async function settleDifference(d: SheetDifference, choice: "mine" | "app") {
+    const key = `${d.questionId}:${d.part}`;
+    setSettling((s) => ({ ...s, [key]: true }));
+    try {
+      if (choice === "mine") {
+        await applySheetMarksAction(assessment.id, [
+          { submissionId: submission.id, questionId: d.questionId, part: d.part },
+        ]);
+      } else {
+        await keepAppMarkAction(submission.id, d.questionId, d.part);
+      }
+      router.refresh();
+    } finally {
+      setSettling((s) => ({ ...s, [key]: false }));
+    }
+  }
+
   const [sections, setSections] = useState<ReportSections | null>(report?.sections ?? null);
   const [reportStatus, setReportStatus] = useState<ReportRow["status"] | null>(
     report?.status ?? null
@@ -145,11 +212,6 @@ export function DpReviewClient({
     setReportStatus(report?.status ?? null);
   }
 
-  const [savingTranscript, setSavingTranscript] = useState<Record<number, boolean>>({});
-  const [transcriptStatus, setTranscriptStatus] = useState<Record<number, SaveStatus | undefined>>(
-    {}
-  );
-
   const [savingMark, setSavingMark] = useState<{ questionId: number; markId: string } | null>(null);
   const [markStatusByQuestion, setMarkStatusByQuestion] = useState<
     Record<number, Record<string, SaveStatus | undefined>>
@@ -176,44 +238,12 @@ export function DpReviewClient({
     }, 2000);
   }
 
-  async function saveTranscript(questionId: number) {
-    const content = transcriptMap[questionId];
-    if (!content) return;
-    setSavingTranscript((s) => ({ ...s, [questionId]: true }));
-    setTranscriptStatus((s) => ({ ...s, [questionId]: undefined }));
-    try {
-      const res = await fetch("/api/review/transcript", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ submissionId: submission.id, questionId, content }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        setTranscriptMap((m) => ({ ...m, [questionId]: json.transcript.content }));
-        setTranscriptStatus((s) => ({ ...s, [questionId]: { kind: "success" } }));
-        setTimeout(() => {
-          setTranscriptStatus((s) =>
-            s[questionId]?.kind === "success" ? { ...s, [questionId]: undefined } : s
-          );
-        }, 2000);
-      } else {
-        const json = await res.json().catch(() => null);
-        setTranscriptStatus((s) => ({
-          ...s,
-          [questionId]: {
-            kind: "error",
-            message: (json && (json.error as string)) ?? `Save failed (${res.status}).`,
-          },
-        }));
-      }
-    } catch {
-      setTranscriptStatus((s) => ({
-        ...s,
-        [questionId]: { kind: "error", message: "Network error — could not reach the server." },
-      }));
-    } finally {
-      setSavingTranscript((s) => ({ ...s, [questionId]: false }));
-    }
+  // Transcript edits save themselves a moment after the last change.
+  const autosave = useTranscriptAutosave(submission.id, transcriptMap);
+  /** Applies an edit to one question's transcript and queues it to save. */
+  function editTranscript(questionId: number, edit: (t: TranscriptQuestion) => TranscriptQuestion) {
+    autosave.markDirty(questionId);
+    setTranscriptMap((m) => (m[questionId] ? { ...m, [questionId]: edit(m[questionId]) } : m));
   }
 
   async function toggleMark(questionId: number, markId: string, nextAwarded: boolean) {
@@ -233,6 +263,8 @@ export function DpReviewClient({
         setGradingMap((m) => ({ ...m, [questionId]: json.grading.content }));
         setResult(json.dpResult);
         flashMarkSuccess(questionId, markId);
+        // A mark changed by hand may now agree with the teacher's sheet, settling a difference.
+        if (differencesByQuestionId.has(questionId)) router.refresh();
       } else {
         const json = await res.json().catch(() => null);
         setMarkStatusByQuestion((s) => ({
@@ -498,6 +530,10 @@ export function DpReviewClient({
         questions={questions}
         gradingByQuestionId={gradingByQuestionId}
         boundaries={boundaries}
+        transcriptByQuestionId={transcriptMap}
+        differencesByQuestionId={differencesByQuestionId}
+        selectedQuestionId={selectedQuestionId}
+        onSelect={showQuestion}
       />
 
       {/* Independently-scrolling columns on large screens, same as MYP. */}
@@ -525,48 +561,42 @@ export function DpReviewClient({
             ) : (
               <div className="space-y-4">
                 {questions.map((q) => (
-                  <DpQuestionPanel
+                  <div
                     key={q.id}
+                    id={`q-${q.id}`}
+                    className={`scroll-mt-2 rounded-lg ${
+                      q.id === selectedQuestionId ? "ring-2 ring-slate-900 ring-offset-2" : ""
+                    }`}
+                  >
+                  <DpQuestionPanel
                     question={q}
                     transcript={transcriptMap[q.id] ?? null}
                     grading={gradingMap[q.id] ?? null}
-                    savingTranscript={!!savingTranscript[q.id]}
-                    transcriptStatus={transcriptStatus[q.id]}
+                    savingTranscript={autosave.stateOf(q.id).saving}
+                    transcriptStatus={autosave.stateOf(q.id).status}
                     onStepTextChange={(stepIndex, text) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const steps = current.steps.map((s, i) =>
-                          i === stepIndex ? { ...s, text } : s
-                        );
-                        return { ...m, [q.id]: { ...current, steps } };
-                      })
+                      editTranscript(q.id, (t) => editStepText(t, stepIndex, text))
+                    }
+                    onToggleStepOmitted={(stepIndex) =>
+                      editTranscript(q.id, (t) => toggleStepOmitted(t, stepIndex))
                     }
                     onIllegibleResolvedTextChange={(flagIndex, text) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const illegible = current.illegible.map((f, i) =>
-                          i === flagIndex ? { ...f, resolvedText: text } : f
-                        );
-                        return { ...m, [q.id]: { ...current, illegible } };
-                      })
+                      editTranscript(q.id, (t) => resolveFlag(t, flagIndex, text))
                     }
                     onMarkUnreadable={(flagIndex) =>
-                      setTranscriptMap((m) => {
-                        const current = m[q.id];
-                        if (!current) return m;
-                        const illegible = current.illegible.map((f, i) =>
-                          i === flagIndex ? { ...f, resolvedText: "" } : f
-                        );
-                        return { ...m, [q.id]: { ...current, illegible } };
-                      })
+                      editTranscript(q.id, (t) => markFlagUnreadable(t, flagIndex))
                     }
-                    onSaveTranscript={() => saveTranscript(q.id)}
+                    onUseLineAsIs={(flagIndex) => editTranscript(q.id, (t) => acceptLineAsIs(t, flagIndex))}
+                    onAcceptAsItStands={() => editTranscript(q.id, acceptQuestionAsIs)}
+                    onSaveTranscript={() => autosave.saveNow(q.id)}
                     onToggleMark={(markId, nextAwarded) => toggleMark(q.id, markId, nextAwarded)}
                     savingMarkId={savingMark?.questionId === q.id ? savingMark.markId : null}
                     markStatus={markStatusByQuestion[q.id] ?? {}}
+                    differences={differencesByQuestionId.get(q.id) ?? []}
+                    settlingParts={settling}
+                    onSettleDifference={settleDifference}
                   />
+                  </div>
                 ))}
               </div>
             )}

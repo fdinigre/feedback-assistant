@@ -25,6 +25,7 @@ import type {
   TranscriptQuestion,
 } from "@/lib/types";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
+import { blockingFlags } from "@/lib/submissions/review-state";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { recomputeAndPersistDpResult } from "@/lib/submissions/dp-grading";
 import type { RunClaudeOptions } from "@/lib/ai/claude";
@@ -149,7 +150,12 @@ function renderResolvedTranscript(tq: TranscriptQuestion): string {
         if (flag.resolvedText && flag.resolvedText.trim() !== "") {
           return `  ${n}. ${flag.resolvedText}   [teacher-corrected illegible segment]`;
         }
-        return `  ${n}. ${step.text}   [UNGRADEABLE illegible segment — earns no credit: ${flag.note}]`;
+        if (flag.resolvedText === "") {
+          return `  ${n}. ${step.text}   [UNGRADEABLE illegible segment — earns no credit: ${flag.note}]`;
+        }
+        // Still open on a line read in full (an open "[?]" never gets this far):
+        // graded as written, with the reader's doubt beside it.
+        return `  ${n}. ${step.text}   [low confidence — the reader noted: ${flag.note}]`;
       }
       const conf = step.confident ? "" : "   [low confidence]";
       return `  ${n}. ${step.text}${conf}`;
@@ -473,14 +479,15 @@ export async function gradeDpSubmission(submissionId: number): Promise<GradeDpRe
   // ---- Precondition: every illegible flag resolved or explicitly ungradeable ----
   const unresolved: { questionNumber: string; stepIndex: number; note: string }[] = [];
   for (const t of transcripts) {
-    for (const f of t.content.illegible) {
-      if (f.resolvedText === undefined) {
-        unresolved.push({
-          questionNumber: t.content.questionNumber,
-          stepIndex: f.stepIndex,
-          note: f.note,
-        });
-      }
+    // Only an unreadable part still showing "[?]" holds the paper up. A flag on a
+    // line read in full, or on a line taken out of the answer, does not — the same
+    // rule the review screen colours by (lib/submissions/review-state.ts).
+    for (const f of blockingFlags(t.content)) {
+      unresolved.push({
+        questionNumber: t.content.questionNumber,
+        stepIndex: f.stepIndex,
+        note: f.note,
+      });
     }
   }
   if (unresolved.length > 0) throw new UnresolvedFlagsError(unresolved);

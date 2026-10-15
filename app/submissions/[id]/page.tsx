@@ -95,6 +95,9 @@ export default async function SubmissionReviewPage({
   const nav = computeSubmissionNav(assessment.id, submission.id);
   const markingNotes = getApplicableMarkingInstructions(assessment.id);
 
+  // Marks on the teacher's uploaded sheet that the app disagrees with, still to decide.
+  const sheetDifferences = listWaitingDifferencesForSubmission(assessment.id, submission.id);
+
   if (assessment.programme === "DP") {
     const dpGradings = listDpGradings(submission.id);
     const dpResult = getDpResult(submission.id) ?? null;
@@ -114,6 +117,7 @@ export default async function SubmissionReviewPage({
           transcripts={transcripts}
           dpGradings={dpGradings}
           dpResult={dpResult}
+          sheetDifferences={sheetDifferences}
           report={report}
           nav={nav}
         />
@@ -125,7 +129,6 @@ export default async function SubmissionReviewPage({
   const criterionLevels = listCriterionLevels(submission.id);
   const rubricDescriptors = listRubricDescriptors(assessment.id);
   const descriptorChecks = listDescriptorChecks(submission.id);
-  const sheetDifferences = listWaitingDifferencesForSubmission(assessment.id, submission.id);
 
   return (
     <div className="space-y-4">

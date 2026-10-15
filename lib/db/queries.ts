@@ -50,6 +50,8 @@ import type {
   StyleExampleRow,
   SubmissionRow,
   SubmissionStatus,
+  TaskDocumentKind,
+  TaskDocumentRow,
   TranscriptQuestion,
   TranscriptRow,
   WorkedSolutionRow,
@@ -68,12 +70,13 @@ type RawExternalDataRow = Omit<ExternalDataRow, "data"> & { data: string };
 type RawLearningTargetRow = LearningTargetRow;
 type RawAssessmentRow = Omit<
   AssessmentRow,
-  "criteria" | "name_mask" | "name_masks" | "boundaries" | "cover_targets"
+  "criteria" | "name_mask" | "name_masks" | "boundaries" | "cover_targets" | "no_name_mask"
 > & {
   criteria: string;
   name_mask: string | null; // stores JSON: legacy single NameMask OR a NameMask[]
   boundaries: string | null;
   cover_targets: string | null;
+  no_name_mask: number;
 };
 
 /**
@@ -146,6 +149,7 @@ function mapAssessment(row: RawAssessmentRow): AssessmentRow {
     name_mask: masks.find((m) => m.page === 1) ?? masks[0] ?? null,
     boundaries: row.boundaries ? (JSON.parse(row.boundaries) as GradeBoundary[]) : null,
     cover_targets: row.cover_targets ? (JSON.parse(row.cover_targets) as string[]) : null,
+    no_name_mask: row.no_name_mask === 1,
   };
 }
 
@@ -393,6 +397,7 @@ function deleteAssessmentRows(assessmentId: number): void {
   db.prepare("DELETE FROM marking_instructions WHERE assessment_id = ?").run(assessmentId);
   db.prepare("DELETE FROM rubrics WHERE assessment_id = ?").run(assessmentId);
   db.prepare("DELETE FROM rubric_descriptors WHERE assessment_id = ?").run(assessmentId);
+  db.prepare("DELETE FROM task_documents WHERE assessment_id = ?").run(assessmentId);
   db.prepare("DELETE FROM level_thresholds WHERE assessment_id = ?").run(assessmentId);
   db.prepare("DELETE FROM worked_solutions WHERE assessment_id = ?").run(assessmentId);
   db.prepare("DELETE FROM questions WHERE assessment_id = ?").run(assessmentId);
@@ -817,6 +822,7 @@ export function updateAssessment(
     paper_file: string | null;
     markscheme_file: string | null;
     cover_targets: string[] | null;
+    no_name_mask: boolean;
   }>
 ): AssessmentRow | undefined {
   const current = getAssessment(id);
@@ -838,7 +844,8 @@ export function updateAssessment(
       `UPDATE assessments SET title = @title, class_id = @class_id, grade = @grade, criteria = @criteria,
        date = @date, name_mask = @name_mask, status = @status, programme = @programme,
        assessment_type = @assessment_type, boundaries = @boundaries, paper_file = @paper_file,
-       markscheme_file = @markscheme_file, cover_targets = @cover_targets WHERE id = @id`
+       markscheme_file = @markscheme_file, cover_targets = @cover_targets,
+       no_name_mask = @no_name_mask WHERE id = @id`
     )
     .run({
       id,
@@ -855,6 +862,7 @@ export function updateAssessment(
       paper_file: next.paper_file,
       markscheme_file: next.markscheme_file,
       cover_targets: next.cover_targets ? JSON.stringify(next.cover_targets) : null,
+      no_name_mask: next.no_name_mask ? 1 : 0,
     });
   return getAssessment(id);
 }
@@ -1036,11 +1044,18 @@ export function getQuestionDataFootprint(id: number): {
   return {
     transcripts: one("SELECT count(*) AS n FROM transcripts WHERE question_id = ?"),
     gradings: one("SELECT count(*) AS n FROM gradings WHERE question_id = ?"),
-    students: one(
-      `SELECT count(DISTINCT sub.student_id) AS n
-         FROM gradings g JOIN submissions sub ON g.submission_id = sub.id
-        WHERE g.question_id = ?`
-    ),
+    // Anyone with a transcript or a mark for it: a question read but not yet
+    // marked still takes those students' transcribed answers with it.
+    students: (
+      db
+        .prepare(
+          `SELECT count(DISTINCT sub.student_id) AS n
+             FROM submissions sub
+            WHERE sub.id IN (SELECT submission_id FROM transcripts WHERE question_id = ?
+                             UNION SELECT submission_id FROM gradings WHERE question_id = ?)`
+        )
+        .get(id, id) as { n: number }
+    ).n,
   };
 }
 
@@ -1197,6 +1212,68 @@ export function updateRubric(id: number, content: string): RubricRow | undefined
 
 export function deleteRubric(id: number): void {
   getDb().prepare("DELETE FROM rubrics WHERE id = ?").run(id);
+}
+
+// ---------------------------------------------------------------------------
+// task_documents (everything that defines a B/C/D task, as many as it has)
+// ---------------------------------------------------------------------------
+
+type RawTaskDocumentRow = Omit<TaskDocumentRow, "used_vision"> & { used_vision: number };
+function mapTaskDocument(row: RawTaskDocumentRow): TaskDocumentRow {
+  return { ...row, used_vision: row.used_vision === 1 };
+}
+
+/** In the order they were uploaded, which is the order the grader reads them in. */
+export function listTaskDocuments(assessmentId: number): TaskDocumentRow[] {
+  return (
+    getDb()
+      .prepare("SELECT * FROM task_documents WHERE assessment_id = ? ORDER BY id")
+      .all(assessmentId) as RawTaskDocumentRow[]
+  ).map(mapTaskDocument);
+}
+
+export function getTaskDocument(id: number): TaskDocumentRow | undefined {
+  const row = getDb().prepare("SELECT * FROM task_documents WHERE id = ?").get(id) as
+    | RawTaskDocumentRow
+    | undefined;
+  return row ? mapTaskDocument(row) : undefined;
+}
+
+export function insertTaskDocument(input: {
+  assessment_id: number;
+  kind: TaskDocumentKind;
+  original_name: string;
+  file_path?: string | null;
+  text: string;
+  used_vision?: boolean;
+}): TaskDocumentRow {
+  const result = getDb()
+    .prepare(
+      `INSERT INTO task_documents (assessment_id, kind, original_name, file_path, text, used_vision)
+       VALUES (@assessment_id, @kind, @original_name, @file_path, @text, @used_vision)`
+    )
+    .run({
+      ...input,
+      file_path: input.file_path ?? null,
+      used_vision: input.used_vision ? 1 : 0,
+    });
+  return getTaskDocument(result.lastInsertRowid as number)!;
+}
+
+export function updateTaskDocument(
+  id: number,
+  fields: Partial<Pick<TaskDocumentRow, "kind" | "text">>
+): TaskDocumentRow | undefined {
+  const existing = getTaskDocument(id);
+  if (!existing) return undefined;
+  getDb()
+    .prepare("UPDATE task_documents SET kind = @kind, text = @text WHERE id = @id")
+    .run({ id, kind: fields.kind ?? existing.kind, text: fields.text ?? existing.text });
+  return getTaskDocument(id);
+}
+
+export function deleteTaskDocument(id: number): void {
+  getDb().prepare("DELETE FROM task_documents WHERE id = ?").run(id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1395,7 +1472,7 @@ function mapSheetMark(row: RawSheetMarkRow): SheetMarkRow {
 
 export function listSheetMarks(submissionId: number): SheetMarkRow[] {
   const rows = getDb()
-    .prepare("SELECT * FROM sheet_marks WHERE submission_id = ? ORDER BY question_id")
+    .prepare("SELECT * FROM sheet_marks WHERE submission_id = ? ORDER BY question_id, part")
     .all(submissionId) as RawSheetMarkRow[];
   return rows.map(mapSheetMark);
 }
@@ -1406,7 +1483,7 @@ export function listSheetMarksForAssessment(assessmentId: number): SheetMarkRow[
       `SELECT sm.* FROM sheet_marks sm
        JOIN submissions s ON s.id = sm.submission_id
        WHERE s.assessment_id = ?
-       ORDER BY sm.submission_id, sm.question_id`
+       ORDER BY sm.submission_id, sm.question_id, sm.part`
     )
     .all(assessmentId) as RawSheetMarkRow[];
   return rows.map(mapSheetMark);
@@ -1418,6 +1495,8 @@ export function replaceSheetMarks(
   marks: {
     submission_id: number;
     question_id: number;
+    /** '' for the whole question. */
+    part?: string;
     points: number;
     from_blank: boolean;
     app_points: number | null;
@@ -1429,11 +1508,11 @@ export function replaceSheetMarks(
       "DELETE FROM sheet_marks WHERE submission_id IN (SELECT id FROM submissions WHERE assessment_id = ?)"
     ).run(assessmentId);
     const insert = db.prepare(
-      `INSERT INTO sheet_marks (submission_id, question_id, points, from_blank, app_points)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO sheet_marks (submission_id, question_id, part, points, from_blank, app_points)
+       VALUES (?, ?, ?, ?, ?, ?)`
     );
     for (const m of marks) {
-      insert.run(m.submission_id, m.question_id, m.points, m.from_blank ? 1 : 0, m.app_points);
+      insert.run(m.submission_id, m.question_id, m.part ?? "", m.points, m.from_blank ? 1 : 0, m.app_points);
     }
   });
   run();
@@ -1442,11 +1521,13 @@ export function replaceSheetMarks(
 export function setSheetMarkResolution(
   submissionId: number,
   questionId: number,
-  resolution: "mine" | "app"
+  resolution: "mine" | "app",
+  /** '' for the whole question. */
+  part = ""
 ): void {
   getDb()
-    .prepare("UPDATE sheet_marks SET resolution = ? WHERE submission_id = ? AND question_id = ?")
-    .run(resolution, submissionId, questionId);
+    .prepare("UPDATE sheet_marks SET resolution = ? WHERE submission_id = ? AND question_id = ? AND part = ?")
+    .run(resolution, submissionId, questionId, part);
 }
 
 export function getMarksSheet(assessmentId: number): MarksSheetRow | undefined {

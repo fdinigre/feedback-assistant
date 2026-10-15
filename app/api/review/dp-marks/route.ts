@@ -63,14 +63,20 @@ export async function POST(request: Request) {
   }
 
   let found = false;
-  const nextSubparts = grading.content.subparts.map((subpart) => ({
-    ...subpart,
-    awards: subpart.awards.map((award) => {
-      if (award.markId !== body.markId) return award;
-      found = true;
-      return { ...award, finalAwarded: body.finalAwarded };
-    }),
-  }));
+  const nextSubparts = grading.content.subparts.map((subpart) => {
+    if (!subpart.awards.some((award) => award.markId === body.markId)) return subpart;
+    found = true;
+    // Ticking a mark is itemising the part again: the total taken from the
+    // teacher's marks sheet for it gives way to the ticks.
+    const { teacherPoints: _fromSheet, ...rest } = subpart;
+    void _fromSheet;
+    return {
+      ...rest,
+      awards: subpart.awards.map((award) =>
+        award.markId === body.markId ? { ...award, finalAwarded: body.finalAwarded } : award
+      ),
+    };
+  });
 
   if (!found) {
     return Response.json(
@@ -79,6 +85,7 @@ export async function POST(request: Request) {
     );
   }
 
+  // Built afresh, so a whole-question total from the marks sheet gives way too.
   const nextContent: DpGradingQuestion = {
     subparts: nextSubparts,
     totalAwarded: sumQuestionMarks(
