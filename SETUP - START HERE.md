@@ -50,7 +50,8 @@ you like.
 ### If you already have the folder
 
 If you downloaded the ZIP or a colleague sent you the folder, and macOS says it
-"could not verify" the app, you can clear that yourself without an
+"could not verify" an icon is free of malware — Install, Feedback Assistant or
+Update Feedback Assistant — you can clear that yourself without an
 administrator:
 
 1. Open **Terminal**.

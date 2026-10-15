@@ -29,6 +29,10 @@ main() {
   # Already installed: update it rather than touching anyone's data.
   if [ -f "$dest/package.json" ] && grep -q "myp-feedback-assistant" "$dest/package.json" 2>/dev/null; then
     echo "Feedback Assistant is already installed in: $dest"
+    # A copy that came through a browser or AirDrop has its icons refused by macOS
+    # ("could not verify… free of malware"). Clearing that on one's own files needs
+    # no administrator, so running this line again also unblocks the icons.
+    /usr/bin/xattr -dr com.apple.quarantine "$dest" 2>/dev/null || true
     echo "Checking for an update instead…"
     FA_PROJECT_DIR="$dest" exec /bin/bash "$dest/scripts/app-update.sh"
   fi

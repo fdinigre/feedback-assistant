@@ -22,6 +22,13 @@ Keep this icon inside that folder and try again." caution
 cd "$PROJECT_DIR" || fail "Could not open the Feedback Assistant folder."
 log "project: $PROJECT_DIR"
 
+# A folder that came through a browser ("Download ZIP"), AirDrop or a shared drive
+# is marked as downloaded, and macOS then refuses each unsigned icon in it as a
+# possible threat — Update Feedback Assistant among them. This icon got through,
+# so clear the mark from the others now: it is the person's own files, and needs
+# no administrator.
+/usr/bin/xattr -dr com.apple.quarantine "$PROJECT_DIR"/*.app 2>/dev/null || true
+
 # Already running? Just show it. Opening a second server would fight over the
 # port and over the database.
 if /usr/bin/curl -fsS --max-time 3 -o /dev/null "$URL" 2>/dev/null; then

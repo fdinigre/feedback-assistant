@@ -30,6 +30,7 @@ import { ApproveAllReports } from "./_components/ApproveAllReports";
 import { MarksImport } from "./_components/MarksImport";
 import { GradesTable } from "./_components/GradesTable";
 import { GradeAddedCriterion } from "./_components/GradeAddedCriterion";
+import { StudentPicker, type PickerGroup } from "./_components/StudentPicker";
 import { buildGradesTable } from "@/lib/assessment/grades-table";
 import { listSheetDifferences, openCombinedDifferences } from "@/lib/marks-import/pending";
 import { DeleteSubmissionButton } from "./_components/DeleteSubmissionButton";
@@ -114,6 +115,18 @@ export default async function SubmissionsPage({
     submissions.filter((s) => s.student_id !== null).map((s) => s.student_id as number)
   );
   const absentCandidates = [...studentById.values()].filter((s) => !assignedStudentIds.has(s.id));
+  // What the student picker needs, and no more: it is sent to the browser.
+  const pickerGroups: PickerGroup[] = classGroups.map((g) => ({
+    classId: g.cls.id,
+    className: g.cls.name,
+    students: g.students.map((st) => ({ id: st.id, name: st.name })),
+  }));
+  const studentsWithPaper = [
+    ...new Set(
+      submissions.filter((s) => s.pdf_path !== null && s.student_id !== null).map((s) => s.student_id as number)
+    ),
+  ];
+  const studentsAbsent = absentSubmissions.map((s) => s.student_id).filter((id): id is number => id !== null);
 
   const duplicateIds = findDuplicateSubmissionIds(submissions);
 
@@ -454,7 +467,12 @@ export default async function SubmissionsPage({
                                 Change
                               </summary>
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <AssignForm submissionId={s.id} current={s.student_id} classGroups={classGroups} />
+                                <StudentPicker
+                                  submissionId={s.id}
+                                  groups={pickerGroups}
+                                  withPaper={studentsWithPaper}
+                                  absent={studentsAbsent}
+                                />
                                 <form action={assignStudent.bind(null, s.id)}>
                                   <input type="hidden" name="studentId" value="" />
                                   <button
@@ -472,7 +490,12 @@ export default async function SubmissionsPage({
                             </details>
                           </div>
                         ) : (
-                          <AssignForm submissionId={s.id} current={null} classGroups={classGroups} />
+                          <StudentPicker
+                            submissionId={s.id}
+                            groups={pickerGroups}
+                            withPaper={studentsWithPaper}
+                            absent={studentsAbsent}
+                          />
                         )}
                       </div>
 
@@ -643,43 +666,5 @@ function ScratchPagesPanel({
         </button>
       </form>
     </details>
-  );
-}
-
-/** The student picker: every class's roster, grouped by class. */
-function AssignForm({
-  submissionId,
-  current,
-  classGroups,
-}: {
-  submissionId: number;
-  current: number | null;
-  classGroups: { cls: { id: number; name: string }; students: StudentRow[] }[];
-}) {
-  return (
-    <form action={assignStudent.bind(null, submissionId)} className="flex items-center gap-2">
-      <select
-        name="studentId"
-        defaultValue={current ?? ""}
-        className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-      >
-        <option value="">— choose a student —</option>
-        {classGroups.map((group) => (
-          <optgroup key={group.cls.id} label={group.cls.name}>
-            {group.students.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.name}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-      </select>
-      <button
-        type="submit"
-        className="rounded-md border border-slate-300 px-3 py-1 text-sm font-medium hover:bg-slate-100"
-      >
-        Assign
-      </button>
-    </form>
   );
 }
