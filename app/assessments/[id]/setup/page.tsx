@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  countCriterionLevels,
   getAssessment,
   getQuestionDataFootprint,
   listLearningTargets,
@@ -40,6 +41,8 @@ import { RubricDescriptorEditor } from "./_components/RubricDescriptorEditor";
 import { ProposeDescriptors } from "./_components/ProposeDescriptors";
 import { TaskDocuments } from "./_components/TaskDocuments";
 import { AnswerShape } from "./_components/AnswerShape";
+import { CriteriaEditor } from "./_components/CriteriaEditor";
+import { ALL_CRITERIA } from "@/lib/assessment/criteria";
 import { RUBRIC_SOURCE_KINDS } from "@/lib/assessment/task-document-kinds";
 import { paperPreviewPageCount } from "@/lib/assessment/paper-preview";
 
@@ -162,6 +165,19 @@ export default async function AssessmentSetupPage({
           </div>
         )}
       </div>
+
+      {/* Criteria, for when one was missed when the assessment was created. A
+          points-only test is not marked on criteria at all. */}
+      {!fmTest && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold text-slate-900">Criteria</h2>
+          <CriteriaEditor
+            assessmentId={assessmentId}
+            criteria={assessment.criteria}
+            gradedCounts={Object.fromEntries(ALL_CRITERIA.map((c) => [c, countCriterionLevels(assessmentId, c)]))}
+          />
+        </section>
+      )}
 
       {isRubricTask ? (
         /* A B/D task: every document it came with, read by the grader beside the work. */

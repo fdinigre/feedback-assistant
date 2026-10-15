@@ -9,6 +9,8 @@ import {
   hasErrorTags,
   hasSkillTags,
   listClasses,
+  listCriterionLevels,
+  listGradings,
   listQuestions,
   listStudents,
   listSubmissions,
@@ -27,6 +29,7 @@ import { isFmTest } from "@/lib/assessment/course";
 import { ApproveAllReports } from "./_components/ApproveAllReports";
 import { MarksImport } from "./_components/MarksImport";
 import { GradesTable } from "./_components/GradesTable";
+import { GradeAddedCriterion } from "./_components/GradeAddedCriterion";
 import { buildGradesTable } from "@/lib/assessment/grades-table";
 import { listSheetDifferences, openCombinedDifferences } from "@/lib/marks-import/pending";
 import { DeleteSubmissionButton } from "./_components/DeleteSubmissionButton";
@@ -309,6 +312,26 @@ export default async function SubmissionsPage({
           </ul>
         </div>
       )}
+
+      {/* A criterion added to the assessment after papers were graded: those papers
+          get its level without their marks being graded again. Criterion A is
+          arithmetic on the marks, so it is not offered here. */}
+      {assessment.programme !== "DP" &&
+        !isFmTest(assessment) &&
+        assessment.criteria
+          .filter((c) => c !== "A")
+          .map((criterion) => {
+            const papers = batchItems
+              .filter(
+                (b) =>
+                  listGradings(b.submissionId).length > 0 &&
+                  !listCriterionLevels(b.submissionId).some((l) => l.criterion === criterion)
+              )
+              .map((b) => ({ submissionId: b.submissionId, studentName: b.studentName }));
+            return papers.length > 0 ? (
+              <GradeAddedCriterion key={criterion} criterion={criterion} papers={papers} />
+            ) : null;
+          })}
 
       <RunAllPipeline items={batchItems} programme={assessment.programme} />
 

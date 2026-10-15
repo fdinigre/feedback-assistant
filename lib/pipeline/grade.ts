@@ -375,48 +375,148 @@ export async function gradeSubmission(submissionId: number): Promise<GradeResult
       criteriaOut.push({ criterion, proposed: proposedLevel, conservative: conservativeLevel });
     } else {
       // B / D (and C as a fallback if pass 1 didn't return it) — level judged from a
-      // rubric with cited evidence in its own call. Where the teacher has split that
-      // rubric into band descriptors, the same call ticks each one off and argues the
-      // best fit between the two levels of its band.
-      const rubric = getRubric(assessment.id, criterion);
-      const descriptors = listRubricDescriptors(assessment.id, criterion);
-      const proposal = await runClaudeJson<LevelProposal>({
-        purpose: descriptors.length > 0 ? `grade-descriptors-${criterion}` : `grade-level-${criterion}`,
-        forbiddenNames,
-        prompt: buildLevelPrompt({
-          pseudonym: student.pseudonym,
-          criterion,
-          rubricContent: rubric?.content ?? null,
-          descriptors,
-          items,
-          pass1,
-          taskDocuments,
-          aLevelAnchor: criterion === "C" ? aLevelForAnchor : null,
-        }),
-      });
-      if (descriptors.length > 0) {
-        recordDescriptorChecks(submission.id, descriptors, proposal.descriptors, forbiddenNames);
-      }
-      const proposedLevel = clampLevel(proposal.level);
-      const conservativeLevel = clampLevel(Math.min(proposal.conservativeLevel, proposal.level));
-      const bestFit = proposal.bestFitArgument?.trim();
-      upsertCriterionLevel({
-        submission_id: submission.id,
+      // rubric with cited evidence in its own call.
+      const levels = await judgeLevelInOwnCall({
+        submissionId: submission.id,
+        assessmentId: assessment.id,
         criterion,
-        level_proposed: proposedLevel,
-        level_conservative: conservativeLevel,
-        level_final: priorFinalLevel.get(criterion) ?? null,
-        evidence: scrubOutput(
-          bestFit ? `${proposal.evidence ?? ""}\n\nBest fit: ${bestFit}` : proposal.evidence ?? "",
-          forbiddenNames
-        ).text,
+        pseudonym: student.pseudonym,
+        items,
+        pass1,
+        taskDocuments,
+        aLevelAnchor: criterion === "C" ? aLevelForAnchor : null,
+        priorFinal: priorFinalLevel.get(criterion) ?? null,
+        forbiddenNames,
       });
-      criteriaOut.push({ criterion, proposed: proposedLevel, conservative: conservativeLevel });
+      criteriaOut.push({ criterion, ...levels });
     }
   }
 
   updateSubmission(submission.id, { status: "graded" });
   return { submissionId: submission.id, gradedQuestions: items.length, criteria: criteriaOut };
+}
+
+/**
+ * A criterion's level judged in a call of its own, from a rubric with cited
+ * evidence. Where the teacher has split that rubric into band descriptors, the same
+ * call ticks each one off and argues the best fit between the two levels of its
+ * band. Stores the level and the ticks; a level the teacher set is kept.
+ */
+async function judgeLevelInOwnCall(args: {
+  submissionId: number;
+  assessmentId: number;
+  criterion: Criterion;
+  pseudonym: string;
+  items: { q: QuestionRow; tq: TranscriptQuestion }[];
+  pass1: Pass1Item[];
+  taskDocuments: string;
+  aLevelAnchor: number | null;
+  priorFinal: number | null;
+  forbiddenNames: string[];
+}): Promise<{ proposed: number; conservative: number }> {
+  const { submissionId, assessmentId, criterion, forbiddenNames } = args;
+  const rubric = getRubric(assessmentId, criterion);
+  const descriptors = listRubricDescriptors(assessmentId, criterion);
+  const proposal = await runClaudeJson<LevelProposal>({
+    purpose: descriptors.length > 0 ? `grade-descriptors-${criterion}` : `grade-level-${criterion}`,
+    forbiddenNames,
+    prompt: buildLevelPrompt({
+      pseudonym: args.pseudonym,
+      criterion,
+      rubricContent: rubric?.content ?? null,
+      descriptors,
+      items: args.items,
+      pass1: args.pass1,
+      taskDocuments: args.taskDocuments,
+      aLevelAnchor: args.aLevelAnchor,
+    }),
+  });
+  if (descriptors.length > 0) {
+    recordDescriptorChecks(submissionId, descriptors, proposal.descriptors, forbiddenNames);
+  }
+  const proposed = clampLevel(proposal.level);
+  const conservative = clampLevel(Math.min(proposal.conservativeLevel, proposal.level));
+  const bestFit = proposal.bestFitArgument?.trim();
+  upsertCriterionLevel({
+    submission_id: submissionId,
+    criterion,
+    level_proposed: proposed,
+    level_conservative: conservative,
+    level_final: args.priorFinal,
+    evidence: scrubOutput(
+      bestFit ? `${proposal.evidence ?? ""}\n\nBest fit: ${bestFit}` : proposal.evidence ?? "",
+      forbiddenNames
+    ).text,
+  });
+  return { proposed, conservative };
+}
+
+/**
+ * One criterion's level for a paper that is already marked — for a criterion added
+ * to the assessment after grading (a test set up as Criterion A that assesses C as
+ * well). The points are not marked again, so nothing the teacher settled moves: the
+ * level is judged from the marks and evidence on file and the student's own work,
+ * in the call a criterion gets when pass 1 did not judge it. Criterion A is not
+ * judged — it is arithmetic on the marks.
+ */
+export async function gradeCriterionLevel(
+  submissionId: number,
+  criterion: Criterion
+): Promise<{ submissionId: number; criterion: Criterion; proposed: number; conservative: number }> {
+  const submission = getSubmission(submissionId);
+  if (!submission) throw new Error(`grade: submission ${submissionId} not found`);
+  if (submission.student_id == null) throw new Error(`grade: submission ${submissionId} has no student assigned`);
+  const student = getStudent(submission.student_id);
+  if (!student) throw new Error(`grade: student ${submission.student_id} not found`);
+  const assessment = getAssessment(submission.assessment_id);
+  if (!assessment) throw new Error(`grade: assessment ${submission.assessment_id} not found`);
+  if (criterion === "A") throw new Error("Criterion A comes from the marks — grade the paper again to work it out.");
+  if (!assessment.criteria.includes(criterion)) {
+    throw new Error(`This assessment does not assess Criterion ${criterion}.`);
+  }
+
+  const gradings = listGradings(submission.id);
+  if (gradings.length === 0) throw new Error("This paper isn't graded yet — grade it, and every criterion is judged.");
+  const transcripts = listTranscripts(submission.id);
+  const unresolved = transcripts.flatMap((t) =>
+    blockingFlags(t.content).map((f) => ({ questionNumber: t.content.questionNumber, stepIndex: f.stepIndex, note: f.note }))
+  );
+  if (unresolved.length > 0) throw new UnresolvedFlagsError(unresolved);
+
+  const questionById = new Map(questionsForStudent(listQuestions(assessment.id), student).map((q) => [q.id, q] as const));
+  const items = transcripts
+    .map((t) => ({ q: questionById.get(t.question_id), tq: t.content }))
+    .filter((x): x is { q: QuestionRow; tq: TranscriptQuestion } => x.q !== undefined)
+    .sort((a, b) => a.q.id - b.q.id);
+  // The marking on file stands in for pass 1: the mark the app has now — the
+  // teacher's where she set one — and the evidence written for it.
+  const pass1: Pass1Item[] = items.flatMap(({ q }) => {
+    const content = gradings.find((g) => g.question_id === q.id)?.content as GradingQuestion | undefined;
+    if (!content) return [];
+    return [
+      {
+        questionNumber: q.number,
+        proposedPoints: content.finalPoints ?? content.conservativePoints,
+        evidence: content.evidence,
+        followThrough: content.followThrough,
+      },
+    ];
+  });
+  const levels = listCriterionLevels(submission.id);
+  const a = levels.find((l) => l.criterion === "A");
+  const result = await judgeLevelInOwnCall({
+    submissionId: submission.id,
+    assessmentId: assessment.id,
+    criterion,
+    pseudonym: student.pseudonym,
+    items,
+    pass1,
+    taskDocuments: taskDocumentsForGrading(assessment.id),
+    aLevelAnchor: criterion === "C" && a ? a.level_final ?? a.level_proposed : null,
+    priorFinal: levels.find((l) => l.criterion === criterion)?.level_final ?? null,
+    forbiddenNames: getForbiddenNames(student.class_id),
+  });
+  return { submissionId: submission.id, criterion, ...result };
 }
 
 

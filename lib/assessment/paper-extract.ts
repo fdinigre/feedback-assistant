@@ -285,6 +285,15 @@ export async function extractMypPaperFromText(text: string): Promise<PaperExtrac
 }
 
 /** Keeps only entries with a band this app knows and a non-empty statement. */
+/**
+ * A cell the table fills with "(not demonstrated at this level)" — the Criterion C
+ * table does for strands iii and v in its lower bands. It asks nothing of the
+ * student, so it is not a statement to tick off: kept, it could never be met, and
+ * would pull every level in its band down.
+ */
+const PLACEHOLDER =
+  /^\(?\s*(?:not\s+(?:demonstrated|applicable|assessed|required)(?:\s+(?:at|in)\s+this\s+(?:level|band))?|n\/a)\s*\)?\.?$/i;
+
 export function coerceRubric(value: unknown): ProposedRubric | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as { criterion?: unknown; descriptors?: unknown };
@@ -297,7 +306,7 @@ export function coerceRubric(value: unknown): ProposedRubric | null {
       text: String(d.text ?? "").trim(),
       studentText: d.studentText ? String(d.studentText).trim() || null : null,
     }))
-    .filter((d): d is ProposedDescriptor => d.band !== null && d.text !== "");
+    .filter((d): d is ProposedDescriptor => d.band !== null && d.text !== "" && !PLACEHOLDER.test(d.text));
   if (descriptors.length === 0) return null;
 
   const criterion = String(raw.criterion ?? "").trim().toUpperCase();

@@ -1582,6 +1582,18 @@ export function listCriterionLevels(submissionId: number): CriterionLevelRow[] {
     .all(submissionId) as RawCriterionLevelRow[];
 }
 
+/** How many of an assessment's papers already have a level for one criterion. */
+export function countCriterionLevels(assessmentId: number, criterion: string): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) AS n FROM criterion_levels cl
+       JOIN submissions s ON s.id = cl.submission_id
+       WHERE s.assessment_id = ? AND cl.criterion = ?`
+    )
+    .get(assessmentId, criterion) as { n: number };
+  return row.n;
+}
+
 export function getCriterionLevel(
   submissionId: number,
   criterion: string

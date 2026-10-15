@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  countCriterionLevels,
   createDpAssessment,
   deleteLevelThreshold,
   deleteQuestionCascade,
@@ -46,6 +47,7 @@ import type {
   TaskDocumentKind,
 } from "@/lib/types";
 import { ALL_CRITERIA, validateCriteria } from "./criteria";
+import { readPaperText } from "./paper-extract";
 import { LEVEL_BANDS, usesLevelThresholds } from "./bands";
 import { syncAssessmentStatus } from "./completeness";
 import fs from "node:fs";
@@ -200,8 +202,27 @@ export async function proposeRubricDescriptorsAction(
     } else {
       const paperPath = resolveStoredPath(assessment.paper_file);
       if (!paperPath) return { error: "The task paper is on file but its file is missing — upload it again." };
-      const rubric = (await extractMypPaper(paperPath)).rubric;
-      rubrics = rubric ? [rubric] : [];
+      // A test paper often prints Criterion A's table and C's, and the paper read
+      // returns only one table. Read as a document, every table is returned under
+      // its own criterion and A's is left out — it must never land on C.
+      const { text } = await readPaperText(paperPath);
+      if (text.trim()) {
+        rubrics = await extractRubricsFromDocuments([
+          {
+            id: 0,
+            assessment_id: assessmentId,
+            kind: "task",
+            original_name: "the test paper",
+            file_path: assessment.paper_file,
+            text,
+            used_vision: false,
+            created_at: "",
+          },
+        ]);
+      } else {
+        const rubric = (await extractMypPaper(paperPath)).rubric;
+        rubrics = rubric ? [rubric] : [];
+      }
     }
     if (rubrics.length === 0) {
       return { error: "No achievement-level table could be read from the documents — add the rows by hand." };
@@ -817,6 +838,46 @@ export async function setNoNameMask(assessmentId: number, formData: FormData): P
   revalidatePath(`/assessments/${assessmentId}/setup`);
   revalidatePath(`/assessments/${assessmentId}`);
   revalidatePath(`/assessments/${assessmentId}/submissions`);
+}
+
+export type CriteriaState = { error: string | null; saved?: boolean; added?: Criterion[] };
+
+/**
+ * The criteria an MYP assessment assesses, changed after it was created — a test
+ * set up as Criterion A that assesses C too. Adding one is always allowed: papers
+ * already graded get its level from the submissions page, without being marked
+ * again. Taking one away is refused once any paper has a level for it, so a
+ * judgement already made is never dropped by a tick box.
+ */
+export async function saveAssessmentCriteria(
+  assessmentId: number,
+  _prev: CriteriaState,
+  formData: FormData
+): Promise<CriteriaState> {
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return { error: "Assessment not found." };
+  if (assessment.programme === "DP" || isFmTest(assessment)) {
+    return { error: "This assessment is not marked on MYP criteria." };
+  }
+  const criteria = parseCriteria(formData);
+  const invalid = validateCriteria(criteria);
+  if (invalid) return { error: invalid };
+  for (const c of assessment.criteria.filter((c) => !criteria.includes(c))) {
+    const graded = countCriterionLevels(assessmentId, c);
+    if (graded > 0) {
+      return {
+        error: `Criterion ${c} already has a level for ${graded} paper${graded === 1 ? "" : "s"}, so it stays.`,
+      };
+    }
+  }
+  const added = criteria.filter((c) => !assessment.criteria.includes(c));
+  updateAssessment(assessmentId, { criteria });
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  revalidatePath(`/assessments/${assessmentId}`);
+  revalidatePath(`/assessments/${assessmentId}/submissions`);
+  revalidatePath("/assessments");
+  return { error: null, saved: true, added };
 }
 
 function clampPageNum(value: number): number {
