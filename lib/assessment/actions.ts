@@ -67,6 +67,7 @@ import {
 import {
   extractRubricsFromDocuments,
   readTaskDocument,
+  readTaskDocumentPages,
   removeRosterNames,
   saveTaskDocumentFile,
 } from "./task-documents";
@@ -531,6 +532,39 @@ export async function saveTaskDocumentText(
   syncAssessmentStatus(assessmentId);
   revalidatePath(`/assessments/${assessmentId}/setup`);
   return { error: null, saved: true, namesRemoved: clean.removed.length };
+}
+
+export type TaskDocumentReadState = { error: string | null; chars?: number; namesRemoved?: number };
+
+/**
+ * Reads a PDF document's pages with the AI and makes that what the grader reads —
+ * for a key worked by hand on a typed sheet, whose answers the upload could not see.
+ * It replaces the text, corrections included; the teacher checks the new reading.
+ */
+export async function readTaskDocumentWithAi(
+  assessmentId: number,
+  documentId: number,
+  _prev: TaskDocumentReadState
+): Promise<TaskDocumentReadState> {
+  const doc = getTaskDocument(documentId);
+  if (!doc || doc.assessment_id !== assessmentId) return { error: "That document is no longer here." };
+  const absolute = resolveStoredPath(doc.file_path);
+  if (!absolute || !fs.existsSync(absolute)) return { error: "The file is no longer on this computer — upload it again." };
+  if (path.extname(absolute).toLowerCase() !== ".pdf") {
+    return { error: "Only a PDF has pages to read; a Word file is read exactly as typed." };
+  }
+  let text: string;
+  try {
+    text = await readTaskDocumentPages(absolute, doc.kind);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+  if (!text) return { error: "The AI read nothing from the pages. The text the grader reads is unchanged." };
+  const clean = removeRosterNames(text);
+  updateTaskDocument(documentId, { text: clean.text, used_vision: true });
+  syncAssessmentStatus(assessmentId);
+  revalidatePath(`/assessments/${assessmentId}/setup`);
+  return { error: null, chars: clean.text.length, namesRemoved: clean.removed.length };
 }
 
 /** Removes one document and its file. If its questions were read from it, the paper goes too. */

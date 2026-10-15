@@ -10,6 +10,7 @@ import {
 import { isFmTest } from "@/lib/assessment/course";
 import { formatTestScore, testScore } from "@/lib/assessment/test-score";
 import { firstNameOf, injectName } from "@/lib/render/names";
+import { withGemPrompt } from "@/lib/report/gem-prompt";
 import type { AssessmentRow } from "@/lib/types";
 
 /**
@@ -158,8 +159,9 @@ export function collectToddleComments(assessment: AssessmentRow): { entries: Tod
     const name = student?.name ?? `Unassigned (submission ${submission.id})`;
 
     const report = getReport(submission.id);
-    const comment = report?.sections.toddleReport?.trim();
-    if (!report || !comment) {
+    const comment = report?.sections.toddleReport?.trim() ?? "";
+    const gemPrompt = report?.sections.gemPrompt?.trim() ?? "";
+    if (!report || (!comment && !gemPrompt)) {
       missing.push(name);
       continue;
     }
@@ -168,10 +170,12 @@ export function collectToddleComments(assessment: AssessmentRow): { entries: Tod
     // back in here, on this machine, at render time. The student reads this one
     // themselves, so it uses their first name only — passing the first name as
     // the full name makes every {{NAME}}, {{FIRSTNAME}} and pseudonym resolve
-    // to it.
-    const withName = student
-      ? injectName(comment, student.name, student.pseudonym)
-      : comment;
+    // to it. The gem prompt rides at the end, untouched — it goes to Gemini and
+    // carries no name — so "Copy comment" takes it into Toddle too.
+    const withName = withGemPrompt(
+      student ? injectName(comment, student.name, student.pseudonym) : comment,
+      gemPrompt
+    );
 
     let gradeLine = "";
     if (isDp) {

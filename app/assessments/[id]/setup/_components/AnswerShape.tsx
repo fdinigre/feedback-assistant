@@ -55,7 +55,7 @@ export function AnswerShape({
           <p className="text-sm font-medium text-slate-900">Part by part, on the task sheet</p>
           <p className="text-xs text-slate-600">
             Numbered parts the students answer on the sheet itself. They are read off the task
-            sheet like a blank test, and the sheet becomes the paper the name mask is placed on.
+            sheet like a blank test, and the sheet becomes the paper the name mask below is placed on.
           </p>
           <button
             type="submit"

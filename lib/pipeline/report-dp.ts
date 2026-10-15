@@ -27,6 +27,7 @@ import type {
 } from "@/lib/types";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import { atlCommentRule, atlFocusJsonShape, parseAtlFocus } from "@/lib/atl/report-focus";
+import { cleanGemPrompt, GEM_PROMPT_JSON_FIELD, gemPromptRule } from "@/lib/report/gem-prompt";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { pickFinal, sumQuestionMarks } from "@/lib/submissions/dp-calc";
 import { recomputeAndPersistDpResult } from "@/lib/submissions/dp-grading";
@@ -296,6 +297,7 @@ export async function generateDpReport(submissionId: number): Promise<DpReportRe
     assessmentTitle: assessment.title,
     assessmentTypeLabel: assessmentTypeLabel(assessment.assessment_type),
     className: cls?.name ?? null,
+    gemStudentLabel: `a Grade ${assessment.grade} IB DP maths student${cls?.course ? ` (${cls.course})` : ""}`,
     totalMarks: dpResult.total_marks,
     maxMarks: dpResult.max_marks,
     pct: dpResult.pct,
@@ -330,6 +332,8 @@ export async function generateDpReport(submissionId: number): Promise<DpReportRe
     actionableSteps: scrubArray(parsed.actionableSteps, forbiddenNames),
     feedbackComment: scrubOutput(String(parsed.feedbackComment ?? ""), forbiddenNames).text,
     toddleReport: scrubOutput(String(parsed.toddleReport ?? ""), forbiddenNames).text,
+    // Scrubbed first: a name the guard catches becomes {{NAME}}, which the clean then drops.
+    gemPrompt: cleanGemPrompt(scrubOutput(String(parsed.gemPrompt ?? ""), forbiddenNames).text),
     atlFocus: parseAtlFocus(parsed.atlFocus, forbiddenNames),
   };
 
@@ -351,6 +355,8 @@ function buildDpReportPrompt(args: {
   assessmentTitle: string;
   assessmentTypeLabel: string;
   className: string | null;
+  /** How the student introduces themselves to their maths gem. */
+  gemStudentLabel: string;
   totalMarks: number;
   maxMarks: number;
   pct: number;
@@ -374,6 +380,7 @@ function buildDpReportPrompt(args: {
     assessmentTitle,
     assessmentTypeLabel: typeLabel,
     className,
+    gemStudentLabel,
     totalMarks,
     maxMarks,
     pct,
@@ -492,6 +499,7 @@ ${styleComments}
      Your next steps:
      - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can actually do.
    Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+${gemPromptRule(gemStudentLabel)}
 
 Return ONLY strict JSON, exactly this shape:
 {
@@ -501,6 +509,7 @@ Return ONLY strict JSON, exactly this shape:
   "actionableSteps": [ "<string>" ],
   "feedbackComment": "<single paragraph, ~70-90 words, addresses {{NAME}}>",
   "toddleReport": "<multi-line student-facing comment in the shape described in rule 6>",
+  ${GEM_PROMPT_JSON_FIELD}
   ${atlFocusJsonShape()}
 }
 No prose, no code fences.`;

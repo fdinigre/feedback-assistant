@@ -182,6 +182,14 @@ export default async function AssessmentSetupPage({
           <div className="mt-3">
             <TaskDocuments assessmentId={assessmentId} documents={taskDocuments} />
           </div>
+          {/* Before the name mask: reading the parts off the task sheet is what makes
+              the sheet the paper, and the mask has no page to show until then. */}
+          {questions.length === 0 && (
+            <AnswerShape
+              assessmentId={assessmentId}
+              hasTaskSheet={taskDocuments.some((d) => d.kind === "task")}
+            />
+          )}
         </section>
       ) : (
         /* The blank test comes first: it fills the question list in, and the
@@ -210,6 +218,9 @@ export default async function AssessmentSetupPage({
         <NoNameMaskToggle assessmentId={assessmentId} on={assessment.no_name_mask} />
         {!assessment.no_name_mask && isRubricTask && !assessment.paper_file && (
           <p className="mt-2 text-sm text-slate-600">
+            {questions.length === 0 && taskDocuments.some((d) => d.kind === "task")
+              ? "If the students answer on the task sheet, read its parts above first: its pages then show here. "
+              : ""}
             When the students hand in their own document rather than a paper of yours, upload one
             student&apos;s work on the submissions page first: the mask is then placed on their page 1.
           </p>
@@ -239,10 +250,9 @@ export default async function AssessmentSetupPage({
           </span>
         </div>
         {isRubricTask && questions.length === 0 && (
-          <AnswerShape
-            assessmentId={assessmentId}
-            hasTaskSheet={taskDocuments.some((d) => d.kind === "task")}
-          />
+          <p className="mt-1 text-sm text-slate-600">
+            Choose how the students answer the task, under the task documents above.
+          </p>
         )}
         {fmTest && (
           <p className="mt-1 text-sm text-slate-600">

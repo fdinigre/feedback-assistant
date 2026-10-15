@@ -54,5 +54,7 @@ export function injectNameSections(
     actionableSteps: sections.actionableSteps.map((s) => injectName(s, studentName, pseudonym)),
     feedbackComment: injectName(sections.feedbackComment, studentName, pseudonym),
     toddleReport: injectName(sections.toddleReport ?? "", studentName, pseudonym),
+    // Goes to Gemini from the student's account: it carries no name, and gets none.
+    gemPrompt: sections.gemPrompt,
   };
 }

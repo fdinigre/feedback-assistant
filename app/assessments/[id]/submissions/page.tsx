@@ -60,14 +60,14 @@ export default async function SubmissionsPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ uploaded?: string; failed?: string }>;
+  searchParams: Promise<{ uploaded?: string; failed?: string; split?: string; notes?: string }>;
 }) {
   const { id } = await params;
   const assessmentId = Number(id);
   const assessment = Number.isInteger(assessmentId) ? getAssessment(assessmentId) : undefined;
   if (!assessment) notFound();
 
-  const { uploaded: uploadedRaw, failed: failedRaw } = await searchParams;
+  const { uploaded: uploadedRaw, failed: failedRaw, split: splitRaw, notes: notesRaw } = await searchParams;
   const uploadedCount = uploadedRaw ? Number(uploadedRaw) : 0;
   let failedUploads: FailedUpload[] = [];
   if (failedRaw) {
@@ -75,6 +75,16 @@ export default async function SubmissionsPage({
       failedUploads = JSON.parse(failedRaw) as FailedUpload[];
     } catch {
       failedUploads = [];
+    }
+  }
+  // Set when one PDF of the whole class was cut into tests of this many pages.
+  const splitPages = splitRaw ? Number(splitRaw) : 0;
+  let uploadNotes: string[] = [];
+  if (notesRaw) {
+    try {
+      uploadNotes = JSON.parse(notesRaw) as string[];
+    } catch {
+      uploadNotes = [];
     }
   }
 
@@ -274,8 +284,17 @@ export default async function SubmissionsPage({
 
       {uploadedCount > 0 && (
         <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
-          {uploadedCount} file{uploadedCount === 1 ? "" : "s"} uploaded successfully.
+          {splitPages > 0
+            ? `Split into ${uploadedCount} test${uploadedCount === 1 ? "" : "s"} of ${splitPages} page${splitPages === 1 ? "" : "s"} and uploaded — assign each one to its student below.`
+            : `${uploadedCount} file${uploadedCount === 1 ? "" : "s"} uploaded successfully.`}
         </p>
+      )}
+      {uploadNotes.length > 0 && (
+        <ul className="mt-4 list-inside list-disc rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {uploadNotes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
       )}
       {failedUploads.length > 0 && (
         <div className="mt-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -309,12 +328,28 @@ export default async function SubmissionsPage({
             required
             className="text-sm text-slate-700"
           />
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            Pages per test
+            <input
+              type="number"
+              name="pagesPerTest"
+              min={1}
+              step={1}
+              placeholder="—"
+              className="w-20 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+            />
+          </label>
           <button
             type="submit"
             className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700"
           >
             Upload batch
           </button>
+          <p className="w-full text-xs text-slate-500">
+            Scanned the whole class into one PDF? Enter how many pages each test has, and it is split
+            into one test per student in scan order. Leave it empty when each PDF is already one
+            student&apos;s test.
+          </p>
         </form>
       </section>
 

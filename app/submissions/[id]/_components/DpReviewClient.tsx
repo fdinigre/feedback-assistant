@@ -387,13 +387,16 @@ export function DpReviewClient({
         </div>
         {nav.nextNeedingReviewId ? (
           <Link
-            href={`/submissions/${nav.nextNeedingReviewId}`}
+            href={`/submissions/${nav.nextNeedingReviewId}${
+              nav.nextNeedingReviewQuestionId ? `#q-${nav.nextNeedingReviewQuestionId}` : ""
+            }`}
+            title={`${nav.needingReviewCount} other paper${nav.needingReviewCount === 1 ? " has" : "s have"} orange lines — parts the AI couldn't read ([?]) still to fix.`}
             className="rounded-md bg-amber-100 px-3 py-1.5 text-sm font-medium text-amber-800 hover:bg-amber-200"
           >
             Next needing review →
           </Link>
         ) : (
-          <span className="text-sm text-slate-400">All reviewed ✓</span>
+          <span className="text-sm text-slate-400">No orange lines left on other papers ✓</span>
         )}
       </div>
 

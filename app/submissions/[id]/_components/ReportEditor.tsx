@@ -286,6 +286,21 @@ export function ReportEditor({
           placeholder="Generate the report to fill this in, or write it yourself."
           className="mt-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
         />
+        <h3 className="mt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Maths gem practice prompt
+        </h3>
+        <p className="mt-1 text-xs text-slate-500">
+          In the student&rsquo;s own voice, for them to paste into their maths Gemini gem: practice
+          questions like the ones they got wrong, one per next step. It goes to Toddle under the report,
+          and never holds a name.
+        </p>
+        <AutoTextarea
+          value={sections.gemPrompt ?? ""}
+          onChange={(value) => onChange({ ...sections, gemPrompt: value })}
+          minRows={6}
+          placeholder="Generate the report to fill this in, or leave it empty to send the report alone."
+          className="mt-2 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+        />
       </div>
 
       <div className="flex items-center gap-3 border-t border-slate-100 pt-4">

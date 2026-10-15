@@ -2,10 +2,12 @@
 
 import { useActionState, useRef, useState } from "react";
 import {
+  readTaskDocumentWithAi,
   removeTaskDocument,
   saveTaskDocumentText,
   setTaskDocumentKind,
   uploadTaskDocuments,
+  type TaskDocumentReadState,
   type TaskDocumentTextState,
   type TaskDocumentUploadState,
 } from "@/lib/assessment/actions";
@@ -19,6 +21,7 @@ import type { TaskDocumentRow } from "@/lib/types";
 
 const initialUpload: TaskDocumentUploadState = { error: null };
 const initialText: TaskDocumentTextState = { error: null };
+const initialRead: TaskDocumentReadState = { error: null };
 
 function plural(n: number, one: string, many = `${one}s`): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -103,7 +106,9 @@ function TaskDocumentUpload({
       <p className="mt-2 text-xs text-slate-500">
         Typed PDFs and Word files are read here on your Mac. A scanned PDF is read by the AI from
         its page images, so if it is a student&apos;s work, blank out the name first. Any name from
-        your rosters is taken out of the text before the grader ever sees it.
+        your rosters is taken out of the text before the grader ever sees it. A key worked by hand
+        on a typed sheet keeps only its typed words this way — use &ldquo;Read the key with
+        AI&rdquo; beside it to read the answers too.
       </p>
       {pending && (
         <p className="mt-2 text-xs text-slate-500">
@@ -155,7 +160,13 @@ function TaskDocumentItem({
     saveTaskDocumentText.bind(null, assessmentId, d.id),
     initialText
   );
+  const [readState, readWithAi, reading] = useActionState(
+    readTaskDocumentWithAi.bind(null, assessmentId, d.id),
+    initialRead
+  );
   const chars = d.text.length;
+  const isPdf = /\.pdf$/i.test(d.original_name);
+  const readLabel = d.kind === "solution" ? "Read the key with AI" : "Read the pages with AI";
 
   return (
     <li className="p-3">
@@ -176,12 +187,32 @@ function TaskDocumentItem({
             ))}
           </select>
         </form>
-        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-900" title={d.original_name}>
+        <span className="min-w-[10rem] flex-1 truncate text-sm font-medium text-slate-900" title={d.original_name}>
           {d.original_name}
         </span>
         <span className="text-xs text-slate-500">
-          {chars.toLocaleString()} characters{d.used_vision ? " · scanned, read by the AI" : ""}
+          {chars.toLocaleString()} characters{d.used_vision ? " · read by the AI from its pages" : ""}
         </span>
+        {isPdf && (
+          <form action={readWithAi}>
+            <button
+              type="submit"
+              disabled={reading}
+              onClick={(e) => {
+                if (
+                  !window.confirm(
+                    `Read ${d.original_name} with the AI? Its reading replaces what the grader reads now, including any corrections you made to it.`
+                  )
+                ) {
+                  e.preventDefault();
+                }
+              }}
+              className="rounded-md border border-slate-300 px-2 py-1 text-xs font-medium hover:bg-slate-50 disabled:opacity-50"
+            >
+              {reading ? "Reading…" : d.used_vision ? "Read again with AI" : readLabel}
+            </button>
+          </form>
+        )}
         <form action={removeTaskDocument.bind(null, assessmentId, d.id)}>
           <button
             type="submit"
@@ -202,7 +233,23 @@ function TaskDocumentItem({
           trim it below to what matters for marking.
         </p>
       )}
-      <details className="mt-2">
+      {reading && (
+        <p className="mt-1 text-xs text-slate-500">
+          The AI is reading the pages — about a minute for a few pages.
+        </p>
+      )}
+      {readState.error && <p className="mt-1 text-xs text-red-600">{readState.error}</p>}
+      {readState.chars !== undefined && !reading && (
+        <p className="mt-1 text-xs text-emerald-700">
+          Read {readState.chars.toLocaleString()} characters from the pages — check them below and
+          correct anything it got wrong.
+          {readState.namesRemoved
+            ? ` Took ${plural(readState.namesRemoved, "roster name")} out.`
+            : ""}
+        </p>
+      )}
+      {/* Opened by a fresh AI reading: that is what the teacher has to check. */}
+      <details className="mt-2" open={readState.chars !== undefined || undefined}>
         <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-700">
           What the grader reads (edit to correct)
         </summary>

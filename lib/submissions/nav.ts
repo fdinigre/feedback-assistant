@@ -1,6 +1,7 @@
 import "server-only";
 
-import { getStudent, listSubmissions } from "@/lib/db/queries";
+import { getStudent, listQuestions, listSubmissions, listTranscripts } from "@/lib/db/queries";
+import { blockingFlags } from "@/lib/submissions/review-state";
 import type { SubmissionRow } from "@/lib/types";
 
 export type SubmissionNav = {
@@ -9,7 +10,17 @@ export type SubmissionNav = {
   total: number;
   prevId: number | null;
   nextId: number | null;
+  /**
+   * The next paper with an orange line — a part the AI couldn't read ("[?]") still
+   * to fix — after this one, wrapping round to the start; null when no other paper
+   * has one. "Needing review" used to mean "report not yet approved", which is
+   * nearly every paper, so the button only ever went to the next student.
+   */
   nextNeedingReviewId: number | null;
+  /** That paper's first question with an orange line, for the link to land on. */
+  nextNeedingReviewQuestionId: number | null;
+  /** How many other papers have orange lines. */
+  needingReviewCount: number;
 };
 
 type Entry = { submission: SubmissionRow; name: string };
@@ -39,15 +50,32 @@ export function computeSubmissionNav(assessmentId: number, currentSubmissionId: 
   const prevId = idx > 0 ? entries[idx - 1].submission.id : null;
   const nextId = idx >= 0 && idx < total - 1 ? entries[idx + 1].submission.id : null;
 
+  // Each paper's first question with an orange line, in the paper's question order.
+  const order = new Map(listQuestions(assessmentId).map((q, i) => [q.id, i]));
+  const firstOrange = (submissionId: number): number | null => {
+    const open = listTranscripts(submissionId)
+      .filter((t) => blockingFlags(t.content).length > 0)
+      .map((t) => t.question_id)
+      .sort((a, b) => (order.get(a) ?? 0) - (order.get(b) ?? 0));
+    return open[0] ?? null;
+  };
+
   let nextNeedingReviewId: number | null = null;
-  if (idx >= 0) {
-    for (let i = idx + 1; i < total; i++) {
-      if (entries[i].submission.status !== "reviewed") {
-        nextNeedingReviewId = entries[i].submission.id;
-        break;
-      }
+  let nextNeedingReviewQuestionId: number | null = null;
+  let needingReviewCount = 0;
+  // After this paper first, then round from the start; never this paper itself.
+  const start = idx >= 0 ? idx + 1 : 0;
+  for (let k = 0; k < total; k++) {
+    const entry = entries[(start + k) % total];
+    if (entry.submission.id === currentSubmissionId) continue;
+    const questionId = firstOrange(entry.submission.id);
+    if (questionId === null) continue;
+    needingReviewCount++;
+    if (nextNeedingReviewId === null) {
+      nextNeedingReviewId = entry.submission.id;
+      nextNeedingReviewQuestionId = questionId;
     }
   }
 
-  return { position, total, prevId, nextId, nextNeedingReviewId };
+  return { position, total, prevId, nextId, nextNeedingReviewId, nextNeedingReviewQuestionId, needingReviewCount };
 }

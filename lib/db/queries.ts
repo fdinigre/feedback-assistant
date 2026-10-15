@@ -1262,13 +1262,18 @@ export function insertTaskDocument(input: {
 
 export function updateTaskDocument(
   id: number,
-  fields: Partial<Pick<TaskDocumentRow, "kind" | "text">>
+  fields: Partial<Pick<TaskDocumentRow, "kind" | "text" | "used_vision">>
 ): TaskDocumentRow | undefined {
   const existing = getTaskDocument(id);
   if (!existing) return undefined;
   getDb()
-    .prepare("UPDATE task_documents SET kind = @kind, text = @text WHERE id = @id")
-    .run({ id, kind: fields.kind ?? existing.kind, text: fields.text ?? existing.text });
+    .prepare("UPDATE task_documents SET kind = @kind, text = @text, used_vision = @used_vision WHERE id = @id")
+    .run({
+      id,
+      kind: fields.kind ?? existing.kind,
+      text: fields.text ?? existing.text,
+      used_vision: (fields.used_vision ?? existing.used_vision) ? 1 : 0,
+    });
   return getTaskDocument(id);
 }
 

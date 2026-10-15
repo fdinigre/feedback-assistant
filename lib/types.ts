@@ -57,6 +57,13 @@ export type ReportSections = {
    */
   toddleReport?: string;
   /**
+   * A prompt the student pastes into their maths Gemini gem, in their own voice, so it
+   * drills them on their next steps with questions like the ones they got wrong. Shown
+   * and copied at the end of the Toddle report (lib/report/gem-prompt.ts). Optional:
+   * reports written before it existed have none.
+   */
+  gemPrompt?: string;
+  /**
    * The one ATL skill this piece of work gave evidence for, against the school's
    * Self-Direction rubric. The feedback comment speaks to it in plain language
    * without naming it; this field is what makes it reportable afterwards.

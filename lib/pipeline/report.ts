@@ -23,6 +23,7 @@ import { LEVEL_BANDS } from "@/lib/assessment/bands";
 import { suggestLevel } from "@/lib/assessment/descriptor-band";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import { atlCommentRule, atlFocusJsonShape, parseAtlFocus } from "@/lib/atl/report-focus";
+import { cleanGemPrompt, GEM_PROMPT_JSON_FIELD, gemPromptRule } from "@/lib/report/gem-prompt";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { NO_COMMENT_EXAMPLES } from "@/lib/style/examples";
 
@@ -184,6 +185,8 @@ export async function generateReport(submissionId: number): Promise<ReportResult
     actionableSteps: scrubArray(parsed.actionableSteps, forbiddenNames),
     feedbackComment: scrubOutput(String(parsed.feedbackComment ?? ""), forbiddenNames).text,
     toddleReport: scrubOutput(String(parsed.toddleReport ?? ""), forbiddenNames).text,
+    // Scrubbed first: a name the guard catches becomes {{NAME}}, which the clean then drops.
+    gemPrompt: cleanGemPrompt(scrubOutput(String(parsed.gemPrompt ?? ""), forbiddenNames).text),
     atlFocus: parseAtlFocus(parsed.atlFocus, forbiddenNames),
   };
 
@@ -290,6 +293,10 @@ function buildReportPrompt(args: {
     hasDescriptors,
     courseName,
   } = args;
+  // How the student introduces themselves to their maths gem.
+  const gemStudentLabel = /financ/i.test(courseName)
+    ? `a ${courseName} student`
+    : `a ${courseName} MYP maths student`;
   return `Write a full analytical report for student ${pseudonym} on the assessment "${assessmentTitle}".
 Everything must be grounded in the graded evidence below. Do NOT invent facts, scores, or data.
 
@@ -381,6 +388,7 @@ ${styleComments}
      Your next steps:
      - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can actually do.
    Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+${gemPromptRule(gemStudentLabel)}
 
 Return ONLY strict JSON, exactly this shape:
 {
@@ -390,6 +398,7 @@ Return ONLY strict JSON, exactly this shape:
   "actionableSteps": [ "<string>" ],
   "feedbackComment": "<single paragraph, ~70-90 words, addresses {{NAME}}>",
   "toddleReport": "<multi-line student-facing comment in the shape described in rule 6>",
+  ${GEM_PROMPT_JSON_FIELD}
   ${atlFocusJsonShape()}
 }
 No prose, no code fences.`;

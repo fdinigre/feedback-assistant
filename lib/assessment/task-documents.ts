@@ -63,11 +63,20 @@ export async function readTaskDocument(
   const direct = (await extractFileText(absolutePath)).join("\n\n").trim();
   if (direct) return { text: direct, usedVision: false };
   if (path.extname(absolutePath).toLowerCase() !== ".pdf") return { text: "", usedVision: false };
+  return { text: await readTaskDocumentPages(absolutePath, kind), usedVision: true };
+}
 
+/**
+ * A PDF document read by the AI from its page images. Uploading only does this for
+ * a scan with no text at all; a key typed out and then worked by hand has a text
+ * layer, so the upload kept its typed words and lost every answer. The teacher asks
+ * for this read from the document's row, and checks what comes back.
+ */
+export async function readTaskDocumentPages(absolutePath: string, kind: TaskDocumentKind): Promise<string> {
   const outDir = path.join(path.dirname(absolutePath), `${path.basename(absolutePath)}-pages`);
   if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
   const imagePaths = await rasterizePdf(absolutePath, outDir);
-  if (imagePaths.length === 0) return { text: "", usedVision: true };
+  if (imagePaths.length === 0) return "";
   const forbiddenNames = getForbiddenNames();
   const raw = await runAi({
     purpose: "task-document-vision",
@@ -75,7 +84,7 @@ export async function readTaskDocument(
     imagePaths,
     forbiddenNames,
   });
-  return { text: scrubOutput(raw.trim(), forbiddenNames).text, usedVision: true };
+  return scrubOutput(raw.trim(), forbiddenNames).text;
 }
 
 /**

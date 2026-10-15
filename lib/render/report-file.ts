@@ -3,6 +3,7 @@
 // stays a plain formatter; the caller injects the real name first.
 
 import type { ReportSections } from "@/lib/types";
+import { withGemPrompt } from "@/lib/report/gem-prompt";
 
 export function renderReportMarkdown(args: {
   studentName: string;
@@ -46,9 +47,10 @@ export function renderReportMarkdown(args: {
   lines.push(sections.feedbackComment || "_None._");
   lines.push("");
 
-  if (sections.toddleReport && sections.toddleReport.trim()) {
+  const toddle = withGemPrompt(sections.toddleReport ?? "", sections.gemPrompt);
+  if (toddle) {
     lines.push("## Student report comment (Toddle)");
-    lines.push(sections.toddleReport);
+    lines.push(toddle);
     lines.push("");
   }
 

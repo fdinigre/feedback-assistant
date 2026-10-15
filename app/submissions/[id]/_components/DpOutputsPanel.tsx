@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { DpGradingQuestion, QuestionRow, ReportSections } from "@/lib/types";
 import { firstNameOf, injectName, injectNameSections } from "@/lib/render/names";
+import { GEM_PROMPT_HEADING, withGemPrompt } from "@/lib/report/gem-prompt";
 import { buildMarkValueMap, pickFinal, sumQuestionMarks } from "@/lib/submissions/dp-calc";
 
 /**
@@ -39,6 +40,9 @@ export function DpOutputsPanel({
   const rendered = injectNameSections(sections, firstName, pseudonym);
   const toddleComment = injectName(sections.feedbackComment, firstName, pseudonym);
   const toddleReport = injectName(sections.toddleReport ?? "", firstName, pseudonym);
+  // The practice prompt for the student's maths gem goes to Toddle at the end of the
+  // report, so Copy takes both. It never has a name in it.
+  const gemPrompt = (sections.gemPrompt ?? "").trim();
 
   const rows = questions.map((q) => {
     const content = gradingByQuestionId.get(q.id);
@@ -60,7 +64,7 @@ export function DpOutputsPanel({
 
   async function copyReport() {
     try {
-      await navigator.clipboard.writeText(toddleReport);
+      await navigator.clipboard.writeText(withGemPrompt(toddleReport, gemPrompt));
       setCopiedReport(true);
       setTimeout(() => setCopiedReport(false), 2000);
     } catch {
@@ -91,7 +95,7 @@ export function DpOutputsPanel({
         )}
       </div>
 
-      {toddleReport.trim() && (
+      {(toddleReport.trim() || gemPrompt) && (
         <div className="rounded-lg border border-indigo-200 bg-white p-5">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Student report comment (Toddle)</h2>
@@ -109,6 +113,16 @@ export function DpOutputsPanel({
           <p className="mt-3 whitespace-pre-wrap rounded bg-indigo-50/60 p-3 text-sm text-slate-800">
             {toddleReport}
           </p>
+          {gemPrompt && (
+            <div className="mt-3 rounded border border-dashed border-indigo-300 p-3">
+              <p className="text-sm font-semibold text-slate-700">{GEM_PROMPT_HEADING}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                For the student to paste into their maths Gemini gem: practice on their own next steps.
+                Copy takes it with the report.
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{gemPrompt}</p>
+            </div>
+          )}
         </div>
       )}
 

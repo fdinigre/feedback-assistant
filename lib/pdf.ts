@@ -6,6 +6,7 @@ import path from "node:path";
 import * as mupdf from "mupdf";
 import sharp from "sharp";
 import type { NameMask } from "@/lib/types";
+import { splitRanges, type PageRange } from "@/lib/intake/split";
 
 const DPI = 150;
 const POINTS_PER_INCH = 72;
@@ -19,6 +20,29 @@ const SCALE = DPI / POINTS_PER_INCH;
 export function pdfPageCount(pdfPath: string): number {
   const doc = mupdf.Document.openDocument(pdfPath) as mupdf.PDFDocument;
   return doc.countPages();
+}
+
+/**
+ * Splits a PDF into consecutive parts of `pagesPerPart` pages, in order; the last
+ * part takes whatever is left. For a class scanned into one file, one test after
+ * another. Each part is a PDF of its own, ready to save, with the pages it holds.
+ */
+export function splitPdf(
+  bytes: Uint8Array,
+  pagesPerPart: number
+): { pageCount: number; parts: { range: PageRange; bytes: Buffer }[] } {
+  if (!Number.isInteger(pagesPerPart) || pagesPerPart < 1) {
+    throw new Error("pages per test must be a whole number of 1 or more");
+  }
+  const src = mupdf.Document.openDocument(bytes, "application/pdf").asPDF();
+  if (!src) throw new Error("not a PDF");
+  const pageCount = src.countPages();
+  const parts = splitRanges(pageCount, pagesPerPart).map((range) => {
+    const part = new mupdf.PDFDocument();
+    for (let p = range.from; p <= range.to; p++) part.graftPage(-1, src, p - 1);
+    return { range, bytes: Buffer.from(part.saveToBuffer("garbage,compress").asUint8Array()) };
+  });
+  return { pageCount, parts };
 }
 
 /**
