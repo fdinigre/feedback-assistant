@@ -6,7 +6,7 @@ import {
   listStudents,
   listSubmissions,
 } from "@/lib/db/queries";
-import type { AssessmentRow, DpGradingQuestion, QuestionRow, StudentRow } from "@/lib/types";
+import type { AssessmentRow, CombinedDifference, DpGradingQuestion, QuestionRow, StudentRow } from "@/lib/types";
 import { questionsForStudent } from "@/lib/assessment/course";
 import { pickFinal, sumQuestionMarks, sumSubpartMarks } from "@/lib/submissions/dp-calc";
 import { canonicalPart, dpLabelTarget, labelToQuestionNumber, type ParsedMarksSheet } from "./parse";
@@ -49,11 +49,41 @@ export type MarksDiff = {
   /** Sheet rows matching a student who has no submission to mark. */
   withoutSubmission: string[];
   ignoredColumns: string[];
-  /** Question columns read as subtotals, because the sheet also marks that question's parts (DP). */
+  /** Question columns read as subtotals, because the sheet also marks that question's parts. */
   subtotalColumns: string[];
+  /** Whole-question columns compared with the total of the parts the app marks (MYP "Q11" = 11a + 11b). */
+  combinedColumns: { label: string; parts: string[] }[];
+  /** Where such a column and the parts' total differ. */
+  combinedDifferences: CombinedDifference[];
   /** Papers the sheet has a row for, whether or not anything on them differs. */
   coveredSubmissions: number[];
 };
+
+/**
+ * MYP marks a question's parts as questions of their own (11a, 11b), and a
+ * gradebook often keeps one column for the whole of it ("Q11"). Such a column is
+ * compared with the parts' total — unless the sheet also has a column for a part,
+ * when it is a subtotal like any other.
+ */
+function mypCombinedColumns(
+  questions: QuestionRow[],
+  labels: string[],
+  hasTarget: (label: string) => boolean
+): { combined: Map<string, QuestionRow[]>; subtotals: string[] } {
+  const sheetNumbers = new Set(labels.map(labelToQuestionNumber));
+  const combined = new Map<string, QuestionRow[]>();
+  const subtotals: string[] = [];
+  for (const label of labels) {
+    if (hasTarget(label)) continue;
+    const n = labelToQuestionNumber(label);
+    if (!/^\d+$/.test(n)) continue;
+    const parts = questions.filter((q) => new RegExp(`^${n}[a-z]`).test(q.number.trim().toLowerCase()));
+    if (parts.length === 0) continue;
+    if (parts.some((q) => sheetNumbers.has(q.number.trim().toLowerCase()))) subtotals.push(label);
+    else combined.set(label, parts);
+  }
+  return { combined, subtotals };
+}
 
 /** The mark the app treats as current: the teacher's override, else the AI's. */
 function sitsQuestion(question: Pick<QuestionRow, "variant">, student: Pick<StudentRow, "modified">): boolean {
@@ -145,6 +175,11 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
     assessment.programme === "DP"
       ? dpResolver(questions, sheet.questionLabels)
       : mypResolver(questions);
+  const { combined, subtotals: partSubtotals } =
+    assessment.programme === "DP"
+      ? { combined: new Map<string, QuestionRow[]>(), subtotals: [] }
+      : mypCombinedColumns(questions, sheet.questionLabels, (label) => !!resolver.target(label));
+  const subtotalColumns = [...resolver.subtotals, ...partSubtotals];
 
   // Only this assessment's class can be marked by this sheet.
   const roster = assessment.class_id !== null ? listStudents(assessment.class_id) : listStudents();
@@ -156,6 +191,7 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
   );
 
   const changes: MarkChange[] = [];
+  const combinedDifferences: CombinedDifference[] = [];
   const unmatchedNames: string[] = [];
   const withoutSubmission: string[] = [];
   const seenStudentIds = new Set<number>();
@@ -163,7 +199,7 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
   let unchanged = 0;
 
   const unmatchedLabels = sheet.questionLabels.filter(
-    (label) => !resolver.subtotals.includes(label) && !resolver.target(label)
+    (label) => !subtotalColumns.includes(label) && !combined.has(label) && !resolver.target(label)
   );
 
   for (const row of sheet.rows) {
@@ -182,6 +218,28 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
     coveredSubmissions.push(submission.id);
 
     for (const [label, mark] of row.marks) {
+      const parts = combined.get(label)?.filter((q) => sitsQuestion(q, student));
+      if (parts && parts.length > 0) {
+        const marks = parts.map((q) => currentMark(assessment, q, "", submission.id));
+        // Parts the app hasn't marked yet: there is no total to compare.
+        if (marks.some((m) => m === null)) continue;
+        const total = marks.reduce((sum: number, m) => sum + (m ?? 0), 0);
+        const incoming = mark ?? 0;
+        if (total === incoming) unchanged++;
+        else {
+          combinedDifferences.push({
+            submissionId: submission.id,
+            studentName: student.name,
+            label,
+            questionIds: parts.map((q) => q.id),
+            parts: parts.map((q) => q.number),
+            incoming,
+            current: total,
+          });
+        }
+        continue;
+      }
+
       const target = resolver.target(label);
       if (!target) continue; // reported via unmatchedLabels, or a subtotal
       const { question } = target;
@@ -226,7 +284,9 @@ export function buildMarksDiff(assessment: AssessmentRow, sheet: ParsedMarksShee
     missingFromSheet,
     withoutSubmission,
     ignoredColumns: sheet.ignoredColumns,
-    subtotalColumns: resolver.subtotals,
+    subtotalColumns,
+    combinedColumns: [...combined].map(([label, parts]) => ({ label, parts: parts.map((q) => q.number) })),
+    combinedDifferences,
     coveredSubmissions,
   };
 }

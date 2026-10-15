@@ -6,6 +6,7 @@ import {
   getAssessment,
   getStudent,
   getSubmission,
+  listQuestions,
   listSubmissions,
   upsertMarksSheet,
 } from "@/lib/db/queries";
@@ -41,14 +42,20 @@ function revalidate(assessmentId: number, submissionIds: Iterable<number>) {
 export async function uploadMarksSheetAction(
   assessmentId: number,
   fileName: string,
-  base64: string
+  base64: string,
+  /** A sheet the teacher picked; otherwise the one that best fits this assessment is read. */
+  sheetName?: string
 ): Promise<MarksUploadResult> {
   const assessment = getAssessment(assessmentId);
   if (!assessment) return { error: "Assessment not found." };
 
   let sheet;
   try {
-    sheet = await parseMarksSheet(Buffer.from(base64, "base64"));
+    sheet = await parseMarksSheet(Buffer.from(base64, "base64"), {
+      questionNumbers: listQuestions(assessmentId).map((q) => q.number),
+      title: assessment.title,
+      sheetName,
+    });
   } catch (err) {
     if (err instanceof MarksSheetError) return { error: err.message };
     return { error: "That file could not be read as a spreadsheet." };
@@ -56,6 +63,8 @@ export async function uploadMarksSheetAction(
 
   const diff = buildMarksDiff(assessment, sheet);
   const summary: MarksUploadSummary = {
+    sheetName: sheet.sheetName,
+    otherSheets: sheet.otherSheets,
     unchanged: diff.unchanged,
     unmatchedNames: diff.unmatchedNames,
     unmatchedLabels: diff.unmatchedLabels,
@@ -67,9 +76,19 @@ export async function uploadMarksSheetAction(
     unmarked: diff.changes.filter((c) => !c.overMax && c.current === null).length,
     ignoredColumns: diff.ignoredColumns,
     subtotalColumns: diff.subtotalColumns,
+    combinedColumns: diff.combinedColumns,
+    combinedDifferences: diff.combinedDifferences,
   };
 
   storeSheetDifferences(assessment, diff);
+  // Kept before settling: a paper whose whole-question column disagrees with
+  // its parts' total is not settled, and settling reads that from here.
+  upsertMarksSheet({
+    assessment_id: assessmentId,
+    // Only ever displayed; keep it to a plain, bounded name.
+    file_name: fileName.replace(/[\\/]/g, "").slice(0, 200) || "marks sheet",
+    summary,
+  });
   // A paper the sheet agrees with entirely is settled now. One with a mark over
   // the question's maximum is not: that cell is a mistake in the sheet, so the
   // sheet has not actually confirmed that mark.
@@ -77,12 +96,6 @@ export async function uploadMarksSheetAction(
   for (const submissionId of diff.coveredSubmissions) {
     if (!overMaxPapers.has(submissionId)) settleIfSheetAgrees(assessmentId, submissionId, true);
   }
-  upsertMarksSheet({
-    assessment_id: assessmentId,
-    // Only ever displayed; keep it to a plain, bounded name.
-    file_name: fileName.replace(/[\\/]/g, "").slice(0, 200) || "marks sheet",
-    summary,
-  });
   // The previous sheet's flags may have sat on any paper, not just this one's.
   revalidate(
     assessmentId,

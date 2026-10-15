@@ -28,7 +28,7 @@ import { ApproveAllReports } from "./_components/ApproveAllReports";
 import { MarksImport } from "./_components/MarksImport";
 import { GradesTable } from "./_components/GradesTable";
 import { buildGradesTable } from "@/lib/assessment/grades-table";
-import { listSheetDifferences } from "@/lib/marks-import/pending";
+import { listSheetDifferences, openCombinedDifferences } from "@/lib/marks-import/pending";
 import { DeleteSubmissionButton } from "./_components/DeleteSubmissionButton";
 
 const DP_TYPE_LABEL: Record<string, string> = {
@@ -275,7 +275,8 @@ export default async function SubmissionsPage({
               marksSheet && {
                 fileName: marksSheet.file_name,
                 uploadedAt: marksSheet.uploaded_at,
-                summary: marksSheet.summary,
+                // Re-read now: a total fixed on a review page drops out of the list.
+                summary: { ...marksSheet.summary, combinedDifferences: openCombinedDifferences(assessmentId) },
               }
             }
             differences={sheetDifferences}

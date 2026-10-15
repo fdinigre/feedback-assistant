@@ -19,6 +19,10 @@ export type ParsedMarksRow = {
 };
 
 export type ParsedMarksSheet = {
+  /** The worksheet the marks were read from. */
+  sheetName: string;
+  /** Other worksheets that also have question columns, best match first — the teacher can pick one instead. */
+  otherSheets: string[];
   /** Question labels in sheet order. */
   questionLabels: string[];
   /** Max marks per label, from the "/3" row if the sheet has one. */
@@ -113,16 +117,19 @@ function parseMark(text: string, rowNumber: number, label: string): number | nul
   return n;
 }
 
-export async function parseMarksSheet(buffer: Buffer | ArrayBuffer): Promise<ParsedMarksSheet> {
-  const workbook = new ExcelJS.Workbook();
-  try {
-    await workbook.xlsx.load(buffer as ExcelJS.Buffer);
-  } catch {
-    throw new MarksSheetError("That file isn't a readable .xlsx workbook.");
-  }
-  const sheet = workbook.worksheets[0];
-  if (!sheet) throw new MarksSheetError("The workbook has no sheets.");
+/** One worksheet read as text, with the row that carries its question labels. */
+type SheetGrid = {
+  name: string;
+  /** Position in the workbook, for keeping the teacher's order on a tie. */
+  index: number;
+  visible: boolean;
+  grid: string[][];
+  headerRow: number;
+  /** Normalised question labels on the header row. */
+  labels: string[];
+};
 
+function readGrid(sheet: ExcelJS.Worksheet, index: number): SheetGrid {
   // Read the whole grid as text first; the layout questions are easier to answer
   // with all of it visible than one row at a time.
   const grid: string[][] = [];
@@ -143,12 +150,84 @@ export async function parseMarksSheet(buffer: Buffer | ArrayBuffer): Promise<Par
       headerRow = r;
     }
   }
-  if (headerRow === -1 || bestCount === 0) {
+  const labels = headerRow === -1 ? [] : (grid[headerRow] ?? []).filter((c) => QUESTION_LABEL.test(c)).map(normaliseLabel);
+  return { name: sheet.name, index, visible: (sheet.state ?? "visible") === "visible", grid, headerRow, labels };
+}
+
+/** The whole numbers in a name: "9E Unit 1 Test" -> {"9", "1"}, "U1 - Test" -> {"1"}. */
+function numbersIn(text: string): Set<string> {
+  return new Set((text.match(/\d+/g) ?? []).map((n) => String(Number(n))));
+}
+
+/**
+ * Which sheet of a workbook holds this assessment's marks. A gradebook keeps a tab
+ * per task (and hidden ones for homework), so the first sheet is often not it: the
+ * best is the one whose question columns match the assessment's questions, then a
+ * visible one over a hidden one, then the one whose name shares a number with the
+ * assessment's title ("U1 - Test" for "Unit 1 Test"), then the one with more
+ * question columns, then the earlier tab.
+ */
+function rankSheets(sheets: SheetGrid[], questionNumbers: string[], title: string): SheetGrid[] {
+  const expected = new Set(questionNumbers.map((n) => n.trim().toLowerCase()));
+  // "11" stands for "11a" and "11b", and a Diploma part "5b" belongs to question 5.
+  const roots = new Set([...expected].map((n) => n.match(/^[a-z]?\d+/)?.[0] ?? n));
+  const titleNumbers = numbersIn(title);
+  const score = (s: SheetGrid) => {
+    const matched = s.labels.filter((l) => {
+      const n = labelToQuestionNumber(l);
+      return expected.has(n) || roots.has(n.match(/^[a-z]?\d+/)?.[0] ?? n);
+    }).length;
+    const shared = [...numbersIn(s.name)].filter((n) => titleNumbers.has(n)).length;
+    return [matched, s.visible ? 1 : 0, shared, s.labels.length, -s.index];
+  };
+  return sheets
+    .filter((s) => s.labels.length > 0)
+    .map((s) => ({ s, key: score(s) }))
+    .sort((a, b) => {
+      for (let i = 0; i < a.key.length; i++) if (a.key[i] !== b.key[i]) return b.key[i] - a.key[i];
+      return 0;
+    })
+    .map(({ s }) => s);
+}
+
+export type ParseMarksOptions = {
+  /** The assessment's question numbers ("1", "4a"), to find the sheet that marks them. */
+  questionNumbers?: string[];
+  /** The assessment's title, to tell one task's tab from another's. */
+  title?: string;
+  /** Read this sheet, the teacher's choice, rather than the best match. */
+  sheetName?: string;
+};
+
+export async function parseMarksSheet(
+  buffer: Buffer | ArrayBuffer,
+  options: ParseMarksOptions = {}
+): Promise<ParsedMarksSheet> {
+  const workbook = new ExcelJS.Workbook();
+  try {
+    await workbook.xlsx.load(buffer as ExcelJS.Buffer);
+  } catch {
+    throw new MarksSheetError("That file isn't a readable .xlsx workbook.");
+  }
+  if (workbook.worksheets.length === 0) throw new MarksSheetError("The workbook has no sheets.");
+
+  const ranked = rankSheets(
+    workbook.worksheets.map(readGrid),
+    options.questionNumbers ?? [],
+    options.title ?? ""
+  );
+  if (ranked.length === 0) {
     throw new MarksSheetError(
-      "Couldn't find the question columns. The sheet needs a row of headings like Q1, Q2, Q3."
+      workbook.worksheets.length === 1
+        ? "Couldn't find the question columns. The sheet needs a row of headings like Q1, Q2, Q3."
+        : "Couldn't find the question columns on any of the workbook's sheets. The one with your marks needs a row of headings like Q1, Q2, Q3."
     );
   }
-
+  const chosen = options.sheetName ? ranked.find((s) => s.name === options.sheetName) : ranked[0];
+  if (!chosen) {
+    throw new MarksSheetError(`The sheet "${options.sheetName}" has no question columns to read.`);
+  }
+  const { grid, headerRow } = chosen;
   const header = grid[headerRow] ?? [];
 
   // The name column: headed "Name" on the header row or the one above it. A
@@ -209,10 +288,12 @@ export async function parseMarksSheet(buffer: Buffer | ArrayBuffer): Promise<Par
   }
 
   if (rows.length === 0) {
-    throw new MarksSheetError("No student rows found beneath the question headings.");
+    throw new MarksSheetError(`No student rows found beneath the question headings on the sheet "${chosen.name}".`);
   }
 
   return {
+    sheetName: chosen.name,
+    otherSheets: ranked.filter((s) => s !== chosen).map((s) => s.name),
     questionLabels: [...labelByCol.values()],
     maxByLabel,
     rows,

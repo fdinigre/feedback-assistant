@@ -90,6 +90,9 @@ export function MarksImport({
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The workbook just uploaded, kept while the page is open so another of its
+  // sheets can be read without choosing the file again.
+  const [lastFile, setLastFile] = useState<File | null>(null);
   const summary = sheet?.summary ?? null;
   // Waiting rows start ticked — the sheet is the teacher's own marking, so
   // accepting is the expected answer. A row whose app mark was deliberately
@@ -102,7 +105,7 @@ export function MarksImport({
   const isTicked = (d: SheetDifference) => (d.status === "waiting") !== toggled.has(keyOf(d));
   const ticked = open.filter(isTicked);
 
-  async function onPick(file: File) {
+  async function onPick(file: File, sheetName?: string) {
     setBusy(true);
     setError(null);
     setDone(null);
@@ -111,11 +114,12 @@ export function MarksImport({
       let binary = "";
       const bytes = new Uint8Array(buffer);
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const result = await uploadMarksSheetAction(assessmentId, file.name, btoa(binary));
+      const result = await uploadMarksSheetAction(assessmentId, file.name, btoa(binary), sheetName);
       if (result.error !== null) {
         setError(result.error);
         return;
       }
+      setLastFile(file);
       setToggled(new Set());
       // The file now lives in the panel below; free the picker for a replacement.
       if (fileRef.current) fileRef.current.value = "";
@@ -248,7 +252,12 @@ export function MarksImport({
 
       {sheet && (
         <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-          <span className="text-sm font-medium text-slate-800">📄 {sheet.fileName}</span>
+          <span className="text-sm font-medium text-slate-800">
+            📄 {sheet.fileName}
+            {sheet.summary.sheetName && (
+              <span className="font-normal text-slate-600"> · sheet &ldquo;{sheet.summary.sheetName}&rdquo;</span>
+            )}
+          </span>
           <span className="text-xs text-slate-500">
             uploaded {formatUploadedAt(sheet.uploadedAt)} · {sheet.summary.unchanged} marks matched ·{" "}
             {differences.length} differed
@@ -265,8 +274,70 @@ export function MarksImport({
         </div>
       )}
 
+      {summary && (summary.otherSheets?.length ?? 0) > 0 && (
+        /* A gradebook has a tab per task; the best match was read, and any other
+           tab with question columns can be read instead. */
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-600">
+          <span>
+            Read the sheet &ldquo;{summary.sheetName}&rdquo;, the best match for this assessment&apos;s
+            questions.
+          </span>
+          {lastFile ? (
+            <>
+              <span>Read another instead:</span>
+              {summary.otherSheets!.map((name) => (
+                <button
+                  key={name}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void onPick(lastFile, name)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-0.5 font-medium hover:bg-slate-50 disabled:opacity-50"
+                >
+                  {name}
+                </button>
+              ))}
+            </>
+          ) : (
+            <span>
+              It also has {summary.otherSheets!.map((n) => `“${n}”`).join(", ")} — choose the file again
+              to read one of those instead.
+            </span>
+          )}
+        </div>
+      )}
+
       {summary && (
         <div className="mt-3">
+          {(summary.combinedColumns?.length ?? 0) > 0 && (
+            <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+              {summary.combinedColumns!.map((c) => (
+                <p key={c.label}>
+                  {c.label} is one column in your sheet, and the app marks it in parts (
+                  {c.parts.join(", ")}), so it was compared with their total.
+                </p>
+              ))}
+              {(summary.combinedDifferences?.length ?? 0) === 0 ? (
+                <p className="mt-1 text-emerald-700">Every total matches.</p>
+              ) : (
+                <>
+                  <p className="mt-1 font-medium text-amber-900">
+                    The totals differ for these. The sheet can&apos;t say which part, so fix the parts on
+                    the review page:
+                  </p>
+                  <ul className="mt-1 list-inside list-disc text-amber-900">
+                    {summary.combinedDifferences!.map((d) => (
+                      <li key={`${d.submissionId}-${d.label}`}>
+                        <Link href={`/submissions/${d.submissionId}`} className="font-medium underline underline-offset-2">
+                          {d.studentName}
+                        </Link>{" "}
+                        — {d.label}: yours {d.incoming}, the app&apos;s {d.parts.join(" + ")} = {d.current}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </div>
+          )}
           {(summary.unmatchedNames.length > 0 ||
             summary.unmatchedLabels.length > 0 ||
             summary.missingFromSheet.length > 0 ||

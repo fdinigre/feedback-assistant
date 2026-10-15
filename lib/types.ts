@@ -394,6 +394,10 @@ export type SheetMarkRow = {
 
 /** What an upload found, beyond the differences themselves. */
 export type MarksUploadSummary = {
+  /** The workbook sheet the marks were read from (absent on sheets uploaded before it was recorded). */
+  sheetName?: string;
+  /** The workbook's other sheets with question columns, which the teacher can read instead. */
+  otherSheets?: string[];
   unchanged: number;
   unmatchedNames: string[];
   unmatchedLabels: string[];
@@ -407,6 +411,30 @@ export type MarksUploadSummary = {
   ignoredColumns?: string[];
   /** Question columns read as subtotals, because the sheet also marks that question's parts. */
   subtotalColumns?: string[];
+  /**
+   * Whole-question columns ("Q11") for a question the app marks in parts (11a, 11b),
+   * compared with the parts' total.
+   */
+  combinedColumns?: { label: string; parts: string[] }[];
+  /** Papers where such a column and the parts' total differ, as found at upload. */
+  combinedDifferences?: CombinedDifference[];
+};
+
+/**
+ * A sheet column for a whole question that disagrees with the total of the parts
+ * the app marks it in. It cannot be applied — the sheet does not say which part
+ * the difference is in — so the teacher fixes the parts on the review page, and the
+ * paper is not settled by the sheet while the totals differ.
+ */
+export type CombinedDifference = {
+  submissionId: number;
+  studentName: string;
+  label: string;
+  questionIds: number[];
+  parts: string[];
+  incoming: number;
+  /** The app's total of the parts. */
+  current: number;
 };
 
 export type MarksSheetRow = {

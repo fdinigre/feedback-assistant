@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   getAssessment,
+  getMarksSheet,
   getStudent,
   getSubmission,
   listQuestions,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/db/queries";
 import type {
   AssessmentRow,
+  CombinedDifference,
   SheetDifference,
   SheetDifferenceStatus,
   SheetMarkRow,
@@ -174,6 +176,27 @@ export function settleIfSheetAgrees(
   const rows = listSheetMarks(submissionId);
   if (rows.length === 0 && !coveredBySheet) return false;
   if (toDifferences(assessmentId, rows).some((d) => d.status === "waiting")) return false;
+  if (openCombinedDifferences(assessmentId).some((d) => d.submissionId === submissionId)) return false;
   settleSubmission(submissionId);
   return true;
+}
+
+/**
+ * The uploaded sheet's whole-question columns that still disagree with the total
+ * of the parts the app marks — read again now, so a part fixed on the review page
+ * drops out without uploading the sheet again.
+ */
+export function openCombinedDifferences(assessmentId: number): CombinedDifference[] {
+  const stored = getMarksSheet(assessmentId)?.summary.combinedDifferences ?? [];
+  if (stored.length === 0) return [];
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return [];
+  const byId = new Map(listQuestions(assessmentId).map((q) => [q.id, q]));
+  return stored
+    .map((d) => {
+      const parts = d.questionIds.map((id) => byId.get(id)).filter((q) => q !== undefined);
+      const total = parts.reduce((sum, q) => sum + (currentMark(assessment, q, "", d.submissionId) ?? 0), 0);
+      return { ...d, current: total };
+    })
+    .filter((d) => d.current !== d.incoming);
 }
