@@ -123,7 +123,9 @@ instead — so you may see a Terminal window appear. That's expected; let it
 finish. If macOS asks whether the app may access your Desktop, say yes.
 
 Keeping the Feedback Assistant folder somewhere outside Desktop, Documents and
-Downloads — your home folder, say — avoids this entirely.
+Downloads — your home folder, say — avoids this entirely. If an icon says macOS
+is blocking it from the folder, that is the fix: move the folder into your home
+folder (the one with the house icon). Your classes, scans and marks move with it.
 
 ## If something else goes wrong
 

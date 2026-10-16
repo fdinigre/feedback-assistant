@@ -42,7 +42,16 @@ if /usr/bin/open -a Terminal "$SCRIPT" 2>>"$LOG"; then
 fi
 
 note "Terminal relay failed"
-/usr/bin/osascript -e 'tell application "System Events" to display dialog "macOS is blocking this app from reading the Feedback Assistant folder, and opening Terminal did not work either.
+# Almost always a folder kept in Downloads, Desktop or Documents, which macOS
+# closes to apps not signed by a registered Apple developer. The home folder is
+# not closed to them, and nothing in the folder depends on where it is.
+PARENT="$(basename "$(dirname "$PROJECT")")"
+/usr/bin/osascript - "$PARENT" >/dev/null 2>&1 <<'OSA'
+on run argv
+  set parentName to item 1 of argv
+  tell application "System Events" to display dialog "macOS is not letting this app into the folder “" & parentName & "”, where Feedback Assistant is kept. It keeps apps that are not signed by a registered Apple developer out of Desktop, Documents and Downloads.
 
-Open the folder and double-click Start.command instead." with title "Feedback Assistant" buttons {"OK"} default button "OK" with icon caution' >/dev/null 2>&1
+Move the Feedback Assistant folder into your home folder (the one with the house icon), then double-click this icon again. Your classes, scans and marks move with it." with title "Feedback Assistant" buttons {"OK"} default button "OK" with icon caution
+end run
+OSA
 exit 1

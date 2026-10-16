@@ -10,7 +10,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 init_log "launch"
 
-PORT=3000
+# FA_PORT is for the checks only, so a test run never touches the app in use.
+PORT="${FA_PORT:-3000}"
 URL="http://localhost:$PORT"
 
 PROJECT_DIR="$(find_project_dir)" || {
@@ -29,12 +30,25 @@ log "project: $PROJECT_DIR"
 # no administrator.
 /usr/bin/xattr -dr com.apple.quarantine "$PROJECT_DIR"/*.app 2>/dev/null || true
 
+# Which folder the running app was started from. A server keeps reading its
+# files from the folder it started in, so after the folder is moved — out of
+# Downloads, say — every page it has not opened yet fails with "Internal Server
+# Error", while the ones it has keep working.
+SERVER_FOLDER_FILE="$SUPPORT_DIR/server-folder"
+
 # Already running? Just show it. Opening a second server would fight over the
-# port and over the database.
+# port and over the database. Unless it is running from somewhere else: then it
+# is restarted from here.
 if /usr/bin/curl -fsS --max-time 3 -o /dev/null "$URL" 2>/dev/null; then
-  log "already running"
-  /usr/bin/open "$URL"
-  exit 0
+  running_from="$(cat "$SERVER_FOLDER_FILE" 2>/dev/null || true)"
+  if [ -z "$running_from" ] || [ "$running_from" = "$PROJECT_DIR" ]; then
+    log "already running"
+    headless || /usr/bin/open "$URL"
+    exit 0
+  fi
+  log "running from $running_from, not $PROJECT_DIR — restarting it from here"
+  pids="$(/usr/sbin/lsof -ti "tcp:$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+  [ -n "$pids" ] && { kill $pids 2>/dev/null || true; sleep 1; }
 fi
 
 # Not set up yet — send them to the installer rather than failing obscurely.
@@ -76,7 +90,8 @@ progress_done
 
 if [ -n "$ready" ]; then
   log "ready"
-  /usr/bin/open "$URL"
+  mkdir -p "$SUPPORT_DIR" 2>/dev/null && printf '%s' "$PROJECT_DIR" > "$SERVER_FOLDER_FILE" 2>/dev/null
+  headless || /usr/bin/open "$URL"
   exit 0
 fi
 

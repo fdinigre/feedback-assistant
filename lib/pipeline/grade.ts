@@ -30,6 +30,7 @@ import type {
 } from "@/lib/types";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import { blockingFlags } from "@/lib/submissions/review-state";
+import { isCrossedOut } from "@/lib/submissions/transcript-edits";
 import { descriptorKey, recordDescriptorChecks, type DescriptorJudgment } from "@/lib/marking/descriptor-checks";
 import { taskDocumentsForGrading } from "@/lib/assessment/task-documents";
 import { runClaudeJson } from "@/lib/pipeline/run";
@@ -84,11 +85,6 @@ export type GradeResult = {
   criteria: { criterion: string; proposed: number; conservative: number }[];
 };
 
-/**
- * How transcription marks work the student struck through. The grader must never
- * credit it, and the teacher re-includes a step by deleting the prefix.
- */
-const CROSSED_OUT_PREFIX = "[crossed out]";
 
 /**
  * Renders one question's transcript for the grader, folding in the teacher's
@@ -126,7 +122,8 @@ export function renderResolvedTranscript(tq: TranscriptQuestion): string {
         // graded as written, with the reader's doubt beside it.
         return `  ${n}. ${step.text}   [low confidence — the reader noted: ${flag.note}]`;
       }
-      if (step.text.trimStart().startsWith(CROSSED_OUT_PREFIX)) {
+      // Work the student struck through: the grader must never credit it.
+      if (isCrossedOut(step.text)) {
         return `  ${n}. ${step.text}   [CROSSED OUT — the student cancelled this work: it earns no credit]`;
       }
       const conf = step.confident ? "" : "   [low confidence]";

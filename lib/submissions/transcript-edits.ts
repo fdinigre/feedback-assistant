@@ -33,8 +33,14 @@ export function editStepText(t: TranscriptQuestion, stepIndex: number, text: str
   return { ...t, steps, illegible };
 }
 
-/** How transcription marks a line the student struck through. */
-const CROSSED_OUT = /^\s*\[crossed out\]\s*/i;
+/**
+ * How transcription marks a line the student struck through: "[crossed out]" at
+ * the start — after the part label on a Diploma paper, whose lines read "(c)
+ * [crossed out] 228" or "(b)(ii) [crossed out] …". The label is kept apart, so a
+ * line put back keeps it. "[crossed out]" further along a line marks only part of
+ * it, and the line still counts.
+ */
+const CROSSED_OUT = /^(\s*(?:\([a-z0-9]{1,6}\)\s*)*)\[crossed out\]\s*/i;
 
 export function isCrossedOut(text: string): boolean {
   return CROSSED_OUT.test(text);
@@ -61,7 +67,7 @@ export function toggleStepOmitted(t: TranscriptQuestion, stepIndex: number): Tra
     steps: t.steps.map((s, i) => {
       if (i !== stepIndex) return s;
       if (!s.omitted) return { ...s, omitted: true };
-      return { ...s, omitted: false, text: s.text.replace(CROSSED_OUT, "") };
+      return { ...s, omitted: false, text: s.text.replace(CROSSED_OUT, "$1") };
     }),
   };
 }

@@ -422,9 +422,13 @@ function migrateAssessmentsNoNameMask(instance: Database.Database): void {
  * transcribed; this does the same, once, for papers transcribed before that. The
  * text stays on record, struck through, and the teacher can put any line back.
  * Recorded in app_settings, so a line put back afterwards is never taken out again.
+ *
+ * It runs once per key. The second pass is for Diploma papers: their lines start
+ * with the part label ("(c) [crossed out] 228"), which the first pass did not
+ * recognise, so none of their crossed-out lines came out. Every Diploma line still
+ * marked crossed out is taken out once; the teacher puts back any that counts.
  */
-function migrateOmitCrossedOut(instance: Database.Database): void {
-  const KEY = "migration:omit-crossed-out";
+function migrateOmitCrossedOut(instance: Database.Database, KEY: string): void {
   if (instance.prepare("SELECT 1 FROM app_settings WHERE key = ?").get(KEY)) return;
   const rows = instance
     .prepare("SELECT id, content FROM transcripts WHERE content LIKE '%[crossed out]%' COLLATE NOCASE")
@@ -497,7 +501,8 @@ function initDb(): Database.Database {
   migrateCourseToFreeText(instance);
   migrateExternalDataPeriod(instance);
   migrateAssessmentsNoNameMask(instance);
-  migrateOmitCrossedOut(instance);
+  migrateOmitCrossedOut(instance, "migration:omit-crossed-out");
+  migrateOmitCrossedOut(instance, "migration:omit-crossed-out-after-part-label");
   instance.pragma("foreign_keys = ON");
 
   seedStyleExamples(instance);
