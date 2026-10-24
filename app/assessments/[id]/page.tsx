@@ -5,6 +5,8 @@ import { DeleteAssessmentButton } from "./_components/DeleteAssessmentButton";
 import { isFmTest } from "@/lib/assessment/course";
 import { computeCompleteness, displayStatus } from "@/lib/assessment/completeness";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
+import { computeAssessmentMistakes } from "@/lib/assessment/mistakes";
+import { MistakesOverview } from "./_components/MistakesOverview";
 
 const DP_TYPE_LABEL: Record<string, string> = {
   quiz: "Quiz (formative)",
@@ -91,6 +93,8 @@ export default async function AssessmentDetailPage({
       </div>
 
       {isDp && <DpSummary assessment={assessment} assessmentId={assessmentId} />}
+
+      <MistakesOverview assessmentId={assessmentId} data={computeAssessmentMistakes(assessmentId)} />
 
       <div className="mt-8 rounded-md border border-slate-200 p-4">
         <h2 className="text-sm font-semibold text-slate-900">Setup completeness</h2>
