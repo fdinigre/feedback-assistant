@@ -40,12 +40,15 @@ export function gemPromptRule(studentLabel: string): string {
      what went wrong, as patterns the gem can recreate, drawn from the grading evidence above — for example "when I
      rearranged 2y = 6x + 4 to make y the subject I divided only the first term". Real mistakes from this paper,
      never invented ones. No question numbers, no scores, marks, levels or grades.
-   - Then a numbered list with ONE item per next step, in the same order. For each, say what to practise with: questions
-     like the ones this student got wrong (same topic and difficulty, then a little harder), and the habit to build
-     into them — for example, on a straight-lines test, "give me rearranging questions like that one, and make me say 'divide every term' each time";
-     "give me lines to find the perpendicular gradient of, and make me write the flipped-and-negative gradient on its
-     own line first"; "give me a point and an equation, and ask me to put the point in to check both sides match";
-     "give me a question and ask me to write the formula I need before I start".
+   - Then a numbered list with ONE item per next step, in the same order. Like the next steps, these are skills for
+     the student's NEXT assessments: start with questions like the ones this student got wrong, then the same skill
+     in other topics, so it carries over. For each, say what to practise and the habit to build into it, in plain
+     words — for example "give me equations to rearrange, and check that I do the same thing to every term on both
+     sides"; "give me a point and an equation, and ask me to put the point in to check both sides match"; "before I
+     start each question, ask me which formula I need and what each letter in it stands for". Where a step says which
+     kind of task it is for, keep that.
+   - Never invent a name for a technique or drill, and never ask the gem to make the student say or repeat a phrase.
+     Explain any maths word the student may not know in a few words.
    - Then how to run the session: one question at a time; wait for my answer; check my working step by step and point
      to the first wrong step rather than giving the answer; give a hint if I'm stuck; show a full worked solution only
      after two tries; finish with a short summary of what I should still practise.

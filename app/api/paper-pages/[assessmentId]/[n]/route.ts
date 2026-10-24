@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import { getAssessment } from "@/lib/db/queries";
-import { findAssessmentPaper } from "@/lib/assessment/file-paths";
+import { previewPaperPath } from "@/lib/assessment/paper-preview";
 import { pdfPageCount, rasterizePdfPage } from "@/lib/pdf";
 
 // Serves a page of the BLANK uploaded exam paper as a PNG, for the name-mask
@@ -27,21 +28,22 @@ export async function GET(
   const assessment = getAssessment(Number(assessmentId));
   if (!assessment) return new Response("Assessment not found", { status: 404 });
 
-  const paperPath = findAssessmentPaper(Number(assessmentId), assessment.paper_file);
-  if (!paperPath) return new Response("No paper uploaded", { status: 404 });
-  if (path.extname(paperPath).toLowerCase() !== ".pdf") {
-    // .docx papers can't be rendered; the caller falls back to a scan.
-    return new Response("Paper is not a PDF", { status: 415 });
-  }
+  // The blank paper, or a B/C/D task's task sheet or template until it has one.
+  // Null also for a .docx paper, which can't be rendered: the caller falls back to a scan.
+  const paperPath = previewPaperPath(Number(assessmentId), assessment.paper_file);
+  if (!paperPath) return new Response("No paper to preview", { status: 404 });
 
   const pageNumber = Number(n);
+  // Cached per source file: the preview can move from the task sheet to the paper
+  // read off it, and an older file must never be shown from a newer cache.
+  const source = createHash("sha1").update(paperPath).digest("hex").slice(0, 10);
   const cachePath = path.join(
     process.cwd(),
     "data",
     "papers",
     assessmentId,
     "preview",
-    `page-${pageNumber}.png`
+    `${source}-page-${pageNumber}.png`
   );
 
   try {

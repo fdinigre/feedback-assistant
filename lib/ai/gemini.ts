@@ -183,6 +183,15 @@ function findForbiddenName(text: string, forbiddenNames: string[]): string | nul
 }
 
 /** Runs `agy` once and resolves with its stdout, turning setup failures into GeminiSetupError. */
+/**
+ * How long agy may go quiet after printing its answer before the answer is taken.
+ * agy 1.4.7 prints a complete reply and then often never exits — it sits "waiting
+ * for migrations" until killed — so a report that was ready in a minute timed out
+ * at ten. The reply is printed in one go, so a pause this long after it means
+ * there is nothing more to come.
+ */
+export const AGY_QUIET_MS = 20_000;
+
 function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): Promise<string> {
   // Keep the full environment: unlike the Claude adapter (which strips
   // ANTHROPIC_/CLAUDE session vars), agy may need GEMINI_API_KEY when it is set
@@ -203,8 +212,24 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
       reject(new Error(`runGemini: "${label}" timed out after ${timeoutMs}ms`));
     }, timeoutMs);
 
+    // The answer is in once agy has printed something and then gone quiet: stop
+    // it and use what it printed, rather than wait for an exit that never comes.
+    let quiet: ReturnType<typeof setTimeout> | undefined;
+    const takeAnswer = () => {
+      if (settled || !stdout.trim()) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
+      const quota = quotaMessage(`${stderr}\n${stdout}`);
+      if (quota) reject(new Error(quota));
+      else resolve(stdout);
+    };
+
     child.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf-8");
+      clearTimeout(quiet);
+      quiet = setTimeout(takeAnswer, AGY_QUIET_MS);
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderr += chunk.toString("utf-8");
@@ -229,6 +254,7 @@ function runAgy(args: string[], cwd: string, label: string, timeoutMs: number): 
     });
 
     child.on("close", (code) => {
+      clearTimeout(quiet);
       if (settled) return;
       settled = true;
       clearTimeout(timer);

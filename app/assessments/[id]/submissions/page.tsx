@@ -28,6 +28,8 @@ import { RunAllPipeline, type BatchItem } from "./_components/RunAllPipeline";
 import { isFmTest } from "@/lib/assessment/course";
 import { ApproveAllReports } from "./_components/ApproveAllReports";
 import { MarksImport } from "./_components/MarksImport";
+import { TypedMarks } from "./_components/TypedMarks";
+import { buildTypedMarksGrid } from "@/lib/marks-import/typed";
 import { GradesTable } from "./_components/GradesTable";
 import { GradeAddedCriterion } from "./_components/GradeAddedCriterion";
 import { StudentPicker, type PickerGroup } from "./_components/StudentPicker";
@@ -280,6 +282,12 @@ export default async function SubmissionsPage({
           </section>
         );
       })()}
+
+      {submissions.some((s) => s.student_id !== null && s.status !== "absent") && (
+        <div className="mt-4">
+          <TypedMarks assessmentId={assessment.id} grid={buildTypedMarksGrid(assessment)} />
+        </div>
+      )}
 
       {submissions.some((s) => s.student_id !== null && s.status !== "absent") && (
           <MarksImport

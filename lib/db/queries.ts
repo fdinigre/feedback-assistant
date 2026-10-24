@@ -823,6 +823,8 @@ export function updateAssessment(
     markscheme_file: string | null;
     cover_targets: string[] | null;
     no_name_mask: boolean;
+    report_instructions: string | null;
+    report_instructions_mode: "add" | "replace";
   }>
 ): AssessmentRow | undefined {
   const current = getAssessment(id);
@@ -845,7 +847,8 @@ export function updateAssessment(
        date = @date, name_mask = @name_mask, status = @status, programme = @programme,
        assessment_type = @assessment_type, boundaries = @boundaries, paper_file = @paper_file,
        markscheme_file = @markscheme_file, cover_targets = @cover_targets,
-       no_name_mask = @no_name_mask WHERE id = @id`
+       no_name_mask = @no_name_mask, report_instructions = @report_instructions,
+       report_instructions_mode = @report_instructions_mode WHERE id = @id`
     )
     .run({
       id,
@@ -863,6 +866,8 @@ export function updateAssessment(
       markscheme_file: next.markscheme_file,
       cover_targets: next.cover_targets ? JSON.stringify(next.cover_targets) : null,
       no_name_mask: next.no_name_mask ? 1 : 0,
+      report_instructions: next.report_instructions ?? null,
+      report_instructions_mode: next.report_instructions_mode === "replace" ? "replace" : "add",
     });
   return getAssessment(id);
 }
@@ -1521,6 +1526,39 @@ export function replaceSheetMarks(
     }
   });
   run();
+}
+
+/**
+ * Records one mark the teacher typed in, replacing the one stored for the same
+ * question (and part). The choice already made for it is kept only while her mark is
+ * unchanged: a different mark is a new difference, waiting to be decided.
+ */
+export function upsertSheetMark(input: {
+  submission_id: number;
+  question_id: number;
+  /** '' for the whole question. */
+  part?: string;
+  points: number;
+  app_points: number | null;
+}): void {
+  getDb()
+    .prepare(
+      `INSERT INTO sheet_marks (submission_id, question_id, part, points, from_blank, app_points)
+       VALUES (@submission_id, @question_id, @part, @points, 0, @app_points)
+       ON CONFLICT(submission_id, question_id, part) DO UPDATE SET
+         resolution = CASE WHEN sheet_marks.points = excluded.points THEN sheet_marks.resolution ELSE NULL END,
+         points = excluded.points,
+         from_blank = 0,
+         app_points = excluded.app_points`
+    )
+    .run({ ...input, part: input.part ?? "" });
+}
+
+/** Forgets the teacher's mark for one question (and part). */
+export function deleteSheetMark(submissionId: number, questionId: number, part = ""): void {
+  getDb()
+    .prepare("DELETE FROM sheet_marks WHERE submission_id = ? AND question_id = ? AND part = ?")
+    .run(submissionId, questionId, part);
 }
 
 export function setSheetMarkResolution(

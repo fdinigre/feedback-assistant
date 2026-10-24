@@ -418,6 +418,24 @@ function migrateAssessmentsNoNameMask(instance: Database.Database): void {
 }
 
 /**
+ * assessments gained report_instructions (+ mode): the teacher's own instructions for
+ * how that assessment's reports are written. Plain ADD COLUMNs, so every existing
+ * assessment keeps the standard rules. Idempotent.
+ */
+function migrateAssessmentsReportInstructions(instance: Database.Database): void {
+  const columns = instance.prepare("PRAGMA table_info(assessments)").all() as { name: string }[];
+  if (columns.length === 0) return;
+  if (!columns.some((c) => c.name === "report_instructions")) {
+    instance.exec("ALTER TABLE assessments ADD COLUMN report_instructions TEXT");
+  }
+  if (!columns.some((c) => c.name === "report_instructions_mode")) {
+    instance.exec(
+      "ALTER TABLE assessments ADD COLUMN report_instructions_mode TEXT NOT NULL DEFAULT 'add' CHECK (report_instructions_mode IN ('add', 'replace'))"
+    );
+  }
+}
+
+/**
  * Lines the student crossed out are taken out of the answer when a paper is
  * transcribed; this does the same, once, for papers transcribed before that. The
  * text stays on record, struck through, and the teacher can put any line back.
@@ -501,6 +519,7 @@ function initDb(): Database.Database {
   migrateCourseToFreeText(instance);
   migrateExternalDataPeriod(instance);
   migrateAssessmentsNoNameMask(instance);
+  migrateAssessmentsReportInstructions(instance);
   migrateOmitCrossedOut(instance, "migration:omit-crossed-out");
   migrateOmitCrossedOut(instance, "migration:omit-crossed-out-after-part-label");
   instance.pragma("foreign_keys = ON");

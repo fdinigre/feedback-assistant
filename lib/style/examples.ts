@@ -15,5 +15,6 @@ export const REPORT_STRUCTURE = `Full report structure (reference: "Trig test an
 1. Data Correlation (Internal Insight) — test performance cross-referenced with MAP percentile/deltas and CAT4 SAS. Omitted (with a note, never invented) when the student has no external data on file.
 2. Strengths — bullets, each citing specific question numbers and topics.
 3. Areas for Improvement — bullets naming the specific error pattern with question evidence.
-4. Actionable Steps — concrete, named techniques and drills.
+4. Actionable Steps — what to do for the next assessments: algebra and number skills, test-taking habits and the
+   maths concepts behind the mistakes, in student language; a step for one kind of task says so.
 5. Feedback Comment — the Toddle paragraph: addresses the student by name using "you"; roughly 70-90 words; structure = specific strength with evidence -> the specific errors that limited the score -> an actionable next step tied to level-band language (e.g. "to move into the Level 7-8 bracket..."); encouraging without inflating.`;

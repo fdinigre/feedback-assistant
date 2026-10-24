@@ -26,6 +26,12 @@ import { atlCommentRule, atlFocusJsonShape, parseAtlFocus } from "@/lib/atl/repo
 import { cleanGemPrompt, GEM_PROMPT_JSON_FIELD, gemPromptRule } from "@/lib/report/gem-prompt";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { NO_COMMENT_EXAMPLES } from "@/lib/style/examples";
+import { nextStepsRule } from "@/lib/report/next-steps";
+import {
+  composeWritingRules,
+  reportFieldHints,
+  reportStructureBlock,
+} from "@/lib/report/instructions";
 
 export type ReportResult = { submissionId: number; hasDataCorrelation: boolean };
 
@@ -168,6 +174,8 @@ export async function generateReport(submissionId: number): Promise<ReportResult
     pointsOnly,
     hasDescriptors,
     courseName: `Grade ${assessment.grade}${cls?.course ? ` ${cls.course}` : ""}`,
+    instructionsText: assessment.report_instructions,
+    instructionsMode: assessment.report_instructions_mode,
   });
 
   const parsed = await runClaudeJson<ReportSections>({
@@ -278,6 +286,9 @@ function buildReportPrompt(args: {
   hasDescriptors: boolean;
   /** "Grade 12 Financial Math", "Grade 9": what the test is for, in the teacher's words. */
   courseName: string;
+  /** The teacher's own instructions for this assessment, and whether they add to or replace the standard rules. */
+  instructionsText: string | null;
+  instructionsMode: "add" | "replace";
 }): string {
   const {
     pseudonym,
@@ -292,21 +303,97 @@ function buildReportPrompt(args: {
     pointsOnly,
     hasDescriptors,
     courseName,
+    instructionsText,
+    instructionsMode,
   } = args;
   // How the student introduces themselves to their maths gem.
   const gemStudentLabel = /financ/i.test(courseName)
     ? `a ${courseName} student`
     : `a ${courseName} MYP maths student`;
+  const instructions = { text: instructionsText, mode: instructionsMode };
+  const fieldHints = reportFieldHints(instructions);
+  const standardRules = `WRITING RULES:
+1. Data Correlation: ${
+    hasExternalData
+      ? "cross-reference this assessment's performance with the MAP percentile/deltas and CAT4 SAS above, using the interpretation guide to explain what the numbers mean (potential vs. attainment), not just restate them. Be specific and honest."
+      : "there is NO external data on file — return null for dataCorrelation. Do NOT invent MAP/CAT4 numbers."
+  }
+STYLE (applies to every section) — write for the STUDENT, in flowing prose, second person ("you"), and keep it
+DIGESTIBLE: do NOT cite question numbers/labels ("Q3(b)") and do NOT quote point tallies ("4/6") or dump raw
+values; refer to the SKILL/topic by name and keep only the substance (what was done well or went wrong, and what to
+do about it). CONSOLIDATE related points — at most ~4-5 strengths and ~5-6 areas, the most important patterns,
+not one per question. Short and clear beats exhaustive.
+2. Strengths: a few skills the student handled well, describing the correct habit they showed. No question
+   numbers, no scores.
+3. Areas for Improvement: name each specific error PATTERN and the skill it belongs to; be honest about blank
+   work and pacing, but as a pattern, not a question-by-question list. No question numbers, no scores.
+4. ${nextStepsRule("MYP")}
+${
+    hasDescriptors
+      ? `4b. COMMAND TERMS — for every criterion whose block above lists descriptors, the feedback must be about the
+   command terms, not only the mathematics. Each descriptor is written around one: describe, verify, justify,
+   prove, predict, state, select, apply, solve, use, write down. For each descriptor NOT met, name its command
+   term explicitly, say what that term asks for (e.g. "verify" means showing the rule holds for a case you
+   worked out independently, not re-substituting into it; "justify" means saying WHY it holds), and say what
+   doing it would have looked like in THIS task. Say the same for the terms the student did handle well, so they
+   can tell the two apart. Add one or two Actionable Steps naming the command terms to practise in the next tasks
+   of that criterion — these carry across tasks, which is the point of teaching them. Each starts with the kind of
+   task it belongs to and explains the term in plain words, as rule 4 says.
+`
+      : ""
+  }
+5. Feedback Comment: a SINGLE paragraph of roughly 70-90 words addressing the student as {{NAME}} using "you".
+   Structure: a specific strength with evidence -> the specific errors that limited the score -> one actionable next
+   step ${
+     pointsOnly
+       ? "tied to the skill the next unit deliverable needs (never mention levels or bands)"
+       : 'tied to level-band language (e.g. "to move into the Level 7-8 bracket...")'
+   }. Encouraging without inflating.
+   Where the criterion block above lists "Still needed for the <band> band", that IS the next step — say it in
+   plain student language, not rubric wording ("show that your rule still works for a figure you have not drawn",
+   not "verify the validity of these general rules").
+   TEACHER'S RULE — the comment must be SELF-CONTAINED: it must explicitly mention at least one strength and at
+   least one concrete, directly actionable step drawn from your own Strengths / Actionable Steps sections above
+   (something concrete the student can do, not vague advice and never a made-up technique name). A comment that
+   identifies problems without telling
+   the student what to DO about them is unacceptable.
+${atlCommentRule()}
+   Match the VOICE of these real teacher examples (do not copy their content, and use {{NAME}} instead of any name):
+${styleComments}
+6. Toddle Report (longer student-facing comment): a friendly, plain-language version the student reads on
+   Toddle. Write it as ONE string with line breaks in EXACTLY this shape (keep the headings verbatim):
+     A warm 1-2 sentence introduction addressed to {{NAME}} (use "you"), naming the assessment topic and the
+     overall gist without any score.
+     (blank line)
+     What went well:
+     - 2-4 short bullets drawn from Strengths, rewritten in easy student language (no jargon, no technique names
+       the student wouldn't know, no question numbers, no scores).
+     (blank line)
+     What to work on:
+     - 2-4 short bullets drawn from Areas for Improvement, phrased kindly and concretely.
+     (blank line)
+     Your next steps:
+     - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can do in their next
+       assessments; keep a step's "In investigation tasks (Criterion B):" opening where it has one.
+   Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+`;
+  const writingRules = composeWritingRules({
+    standardRules,
+    instructions,
+    fixed: {
+      dataCorrelation: hasExternalData
+        ? "cross-reference this assessment's performance with the MAP percentile/deltas and CAT4 SAS above, using the interpretation guide (potential vs. attainment), if the teacher's instructions ask for a data correlation. Be specific and honest."
+        : "there is NO external data on file — return null for dataCorrelation. Do NOT invent MAP/CAT4 numbers.",
+      atl: `${atlCommentRule()}\nVOICE EXAMPLES — match this voice unless the teacher's instructions say otherwise (use {{NAME}} instead of any name, do not copy their content):\n${styleComments}`,
+    },
+  });
   return `Write a full analytical report for student ${pseudonym} on the assessment "${assessmentTitle}".
 Everything must be grounded in the graded evidence below. Do NOT invent facts, scores, or data.
 
 CRITICAL — PRIVACY: Never write the student's real name. In the feedbackComment, address the student using the
 literal token {{NAME}} (the tool re-injects the real name locally). Use "you" throughout the comment.
 
-REPORT STRUCTURE TO FOLLOW:
-${structure}
-
-PER-QUESTION GRADING EVIDENCE:
+${reportStructureBlock(structure, instructions)}PER-QUESTION GRADING EVIDENCE:
 ${perQuestion}
 
 ${pointsOnly ? "SCORE" : "CRITERION LEVELS"}:
@@ -327,67 +414,7 @@ This reference block is trajectory context only (e.g. compare the current criter
 criterion grade, or note an ATL pattern relevant to the areas for improvement / actionable steps). It is NOT part
 of the Data Correlation section. If it says "(none on file)", do not invent prior grades or ATL values.
 
-WRITING RULES:
-1. Data Correlation: ${
-    hasExternalData
-      ? "cross-reference this assessment's performance with the MAP percentile/deltas and CAT4 SAS above, using the interpretation guide to explain what the numbers mean (potential vs. attainment), not just restate them. Be specific and honest."
-      : "there is NO external data on file — return null for dataCorrelation. Do NOT invent MAP/CAT4 numbers."
-  }
-STYLE (applies to every section) — write for the STUDENT, in flowing prose, second person ("you"), and keep it
-DIGESTIBLE: do NOT cite question numbers/labels ("Q3(b)") and do NOT quote point tallies ("4/6") or dump raw
-values; refer to the SKILL/topic by name and keep only the substance (what was done well or went wrong and the
-named technique). CONSOLIDATE related points — at most ~4-5 strengths and ~5-6 areas, the most important patterns,
-not one per question. Short and clear beats exhaustive.
-2. Strengths: a few skills the student handled well, naming the correct habit/technique they showed. No question
-   numbers, no scores.
-3. Areas for Improvement: name each specific error PATTERN and the skill it belongs to; be honest about blank
-   work and pacing, but as a pattern, not a question-by-question list. No question numbers, no scores.
-4. Actionable Steps: concrete, named techniques and drills (not generic advice). No question numbers.
-${
-    hasDescriptors
-      ? `4b. COMMAND TERMS — for every criterion whose block above lists descriptors, the feedback must be about the
-   command terms, not only the mathematics. Each descriptor is written around one: describe, verify, justify,
-   prove, predict, state, select, apply, solve, use, write down. For each descriptor NOT met, name its command
-   term explicitly, say what that term asks for (e.g. "verify" means showing the rule holds for a case you
-   worked out independently, not re-substituting into it; "justify" means saying WHY it holds), and say what
-   doing it would have looked like in THIS task. Say the same for the terms the student did handle well, so they
-   can tell the two apart. Finish the Actionable Steps for that criterion by naming the one or two command terms
-   to practise in the next assessment — these carry across tasks, which is the point of teaching them.
-`
-      : ""
-  }
-5. Feedback Comment: a SINGLE paragraph of roughly 70-90 words addressing the student as {{NAME}} using "you".
-   Structure: a specific strength with evidence -> the specific errors that limited the score -> one actionable next
-   step ${
-     pointsOnly
-       ? "tied to the skill the next unit deliverable needs (never mention levels or bands)"
-       : 'tied to level-band language (e.g. "to move into the Level 7-8 bracket...")'
-   }. Encouraging without inflating.
-   Where the criterion block above lists "Still needed for the <band> band", that IS the next step — say it in
-   plain student language, not rubric wording ("show that your rule still works for a figure you have not drawn",
-   not "verify the validity of these general rules").
-   TEACHER'S RULE — the comment must be SELF-CONTAINED: it must explicitly mention at least one strength and at
-   least one concrete, directly actionable step drawn from your own Strengths / Actionable Steps sections above
-   (a named technique the student can apply, not vague advice). A comment that identifies problems without telling
-   the student what to DO about them is unacceptable.
-${atlCommentRule()}
-   Match the VOICE of these real teacher examples (do not copy their content, and use {{NAME}} instead of any name):
-${styleComments}
-6. Toddle Report (longer student-facing comment): a friendly, plain-language version the student reads on
-   Toddle. Write it as ONE string with line breaks in EXACTLY this shape (keep the headings verbatim):
-     A warm 1-2 sentence introduction addressed to {{NAME}} (use "you"), naming the assessment topic and the
-     overall gist without any score.
-     (blank line)
-     What went well:
-     - 2-4 short bullets drawn from Strengths, rewritten in easy student language (no jargon, no technique names
-       the student wouldn't know, no question numbers, no scores).
-     (blank line)
-     What to work on:
-     - 2-4 short bullets drawn from Areas for Improvement, phrased kindly and concretely.
-     (blank line)
-     Your next steps:
-     - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can actually do.
-   Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+${writingRules}
 ${gemPromptRule(gemStudentLabel)}
 
 Return ONLY strict JSON, exactly this shape:
@@ -396,8 +423,8 @@ Return ONLY strict JSON, exactly this shape:
   "strengths": [ "<string>" ],
   "areasForImprovement": [ "<string>" ],
   "actionableSteps": [ "<string>" ],
-  "feedbackComment": "<single paragraph, ~70-90 words, addresses {{NAME}}>",
-  "toddleReport": "<multi-line student-facing comment in the shape described in rule 6>",
+  "feedbackComment": "${fieldHints.feedbackComment}",
+  "toddleReport": "${fieldHints.toddleReport}",
   ${GEM_PROMPT_JSON_FIELD}
   ${atlFocusJsonShape()}
 }

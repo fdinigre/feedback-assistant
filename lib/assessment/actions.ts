@@ -1,6 +1,7 @@
 "use server";
 
 import { isFmTest } from "./course";
+import { cleanReportInstructions, isReportInstructionsMode } from "@/lib/report/instructions";
 import { proposeAnswerKey, type ProposeKeyResult } from "./propose-key";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -838,6 +839,22 @@ export async function setNoNameMask(assessmentId: number, formData: FormData): P
   revalidatePath(`/assessments/${assessmentId}/setup`);
   revalidatePath(`/assessments/${assessmentId}`);
   revalidatePath(`/assessments/${assessmentId}/submissions`);
+}
+
+/**
+ * The teacher's own instructions for how this assessment's reports are written:
+ * added to the standard writing rules, or standing in for them. Optional; empty text
+ * removes them. Applies to reports generated from now on (existing ones are kept).
+ */
+export async function setReportInstructions(assessmentId: number, formData: FormData): Promise<void> {
+  if (!getAssessment(assessmentId)) return;
+  const text = cleanReportInstructions(formData.get("report_instructions"));
+  const mode = formData.get("report_instructions_mode");
+  updateAssessment(assessmentId, {
+    report_instructions: text,
+    report_instructions_mode: isReportInstructionsMode(mode) ? mode : "add",
+  });
+  revalidatePath(`/assessments/${assessmentId}/setup`);
 }
 
 export type CriteriaState = { error: string | null; saved?: boolean; added?: Criterion[] };

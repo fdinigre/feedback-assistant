@@ -59,6 +59,10 @@ CREATE TABLE IF NOT EXISTS assessments (
   -- is required and pages go to the AI as they are (a typed PDF is still checked
   -- for roster names first). 0 = the page-1 mask is required, the safe default.
   no_name_mask INTEGER NOT NULL DEFAULT 0,
+  -- The teacher's own instructions for how this assessment's reports are written.
+  -- NULL = none. Mode 'add' puts them after the standard rules; 'replace' stands in for them.
+  report_instructions TEXT,
+  report_instructions_mode TEXT NOT NULL DEFAULT 'add' CHECK (report_instructions_mode IN ('add', 'replace')),
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

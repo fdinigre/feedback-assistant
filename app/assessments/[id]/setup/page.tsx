@@ -29,6 +29,7 @@ import {
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { NameMaskEditor } from "./_components/NameMaskEditor";
 import { NoNameMaskToggle } from "./_components/NoNameMaskToggle";
+import { ReportInstructions } from "./_components/ReportInstructions";
 import { LearningTargetCombobox } from "./_components/LearningTargetCombobox";
 import { PaperAutofill } from "./_components/PaperAutofill";
 import { WorkedSolutionUpload } from "./_components/WorkedSolutionUpload";
@@ -41,6 +42,7 @@ import { RubricDescriptorEditor } from "./_components/RubricDescriptorEditor";
 import { ProposeDescriptors } from "./_components/ProposeDescriptors";
 import { TaskDocuments } from "./_components/TaskDocuments";
 import { AnswerShape } from "./_components/AnswerShape";
+import { NotesForm } from "./_components/NotesForm";
 import { CriteriaEditor } from "./_components/CriteriaEditor";
 import { ALL_CRITERIA } from "@/lib/assessment/criteria";
 import { RUBRIC_SOURCE_KINDS } from "@/lib/assessment/task-document-kinds";
@@ -232,15 +234,22 @@ export default async function AssessmentSetupPage({
           second page if the name is repeated there (e.g. a header on page 2).
         </p>
         <NoNameMaskToggle assessmentId={assessmentId} on={assessment.no_name_mask} />
-        {!assessment.no_name_mask && isRubricTask && !assessment.paper_file && (
-          <p className="mt-2 text-sm text-slate-600">
-            {questions.length === 0 && taskDocuments.some((d) => d.kind === "task")
-              ? "If the students answer on the task sheet, read its parts above first: its pages then show here. "
-              : ""}
-            When the students hand in their own document rather than a paper of yours, upload one
-            student&apos;s work on the submissions page first: the mask is then placed on their page 1.
-          </p>
-        )}
+        {!assessment.no_name_mask &&
+          isRubricTask &&
+          !assessment.paper_file &&
+          (() => {
+            // What the preview falls back to without a paper (lib/assessment/paper-preview.ts).
+            const sheet = (["task", "template"] as const)
+              .map((kind) => taskDocuments.find((d) => d.kind === kind && /\.pdf$/i.test(d.file_path ?? "")))
+              .find((d) => d !== undefined);
+            return (
+              <p className="mt-2 text-sm text-slate-600">
+                {sheet
+                  ? `The preview shows ${sheet.kind === "task" ? "the task sheet" : "the template"}, ${sheet.original_name}. If the students hand in a document of their own instead, check the mask against one student's page 1 once their work is uploaded.`
+                  : "When the students hand in their own document rather than a paper of yours, upload one student's work on the submissions page first: the mask is then placed on their page 1."}
+              </p>
+            );
+          })()}
         {!assessment.no_name_mask &&
           (() => {
             const preview = listSubmissions(assessmentId).find((s) => (s.page_count ?? 0) >= 1) ?? null;
@@ -254,6 +263,22 @@ export default async function AssessmentSetupPage({
               />
             );
           })()}
+      </section>
+
+      {/* Report instructions */}
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Report instructions <span className="text-sm font-normal text-slate-500">(optional)</span>
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Tell the report writer something specific about this assessment, on top of the standard
+          instructions or instead of them.
+        </p>
+        <ReportInstructions
+          assessmentId={assessmentId}
+          text={assessment.report_instructions}
+          mode={assessment.report_instructions_mode}
+        />
       </section>
 
       {/* Questions */}
@@ -454,46 +479,30 @@ export default async function AssessmentSetupPage({
             />
           </div>
         )}
-        <form action={saveWholeWorkedSolution.bind(null, assessmentId)} className="mt-3 space-y-2">
-          <textarea
-            name="content"
+        <div className="mt-3">
+          <NotesForm
+            action={saveWholeWorkedSolution.bind(null, assessmentId)}
             defaultValue={wholeSolution?.content ?? ""}
             rows={8}
-            className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
             placeholder="General notes: full/partial credit, follow-through rules..."
+            label="Save worked solution notes"
+            primary
           />
-          <button
-            type="submit"
-            className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
-          >
-            Save worked solution notes
-          </button>
-        </form>
+        </div>
 
         {questions.length > 0 && (
           <div className="mt-6 space-y-4">
             <h3 className="text-sm font-semibold text-slate-800">Per-question notes (optional)</h3>
             {questions.map((q) => (
-              <form
-                key={q.id}
-                action={saveQuestionWorkedSolution.bind(null, assessmentId, q.id)}
-                className="space-y-1"
-              >
-                <label className="text-xs font-medium text-slate-600">Question {q.number}</label>
-                <textarea
-                  name="content"
+              <div key={q.id} className="space-y-1">
+                <p className="text-xs font-medium text-slate-600">Question {q.number}</p>
+                <NotesForm
+                  action={saveQuestionWorkedSolution.bind(null, assessmentId, q.id)}
                   defaultValue={perQuestionSolutions.get(q.id)?.content ?? ""}
                   rows={3}
-                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
                   placeholder="Optional: notes specific to this question"
                 />
-                <button
-                  type="submit"
-                  className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium hover:bg-slate-50"
-                >
-                  Save
-                </button>
-              </form>
+              </div>
             ))}
           </div>
         )}
@@ -538,28 +547,19 @@ export default async function AssessmentSetupPage({
                     <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-700">
                       Extra notes for Criterion {c} (optional)
                     </summary>
-                    <form
-                      action={saveRubric.bind(null, assessmentId, c)}
-                      className="mt-2 space-y-1"
-                    >
+                    <div className="mt-2 space-y-1">
                       <p className="text-xs text-slate-500">
                         Anything the descriptors do not say — how you read a command term for this
                         task, what you will accept as verification. The grader sees it alongside
                         them, and the descriptors win where the two disagree.
                       </p>
-                      <textarea
-                        name="content"
+                      <NotesForm
+                        action={saveRubric.bind(null, assessmentId, c)}
                         defaultValue={rubric?.content ?? ""}
                         rows={5}
-                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm font-mono"
+                        label="Save notes"
                       />
-                      <button
-                        type="submit"
-                        className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-50"
-                      >
-                        Save notes
-                      </button>
-                    </form>
+                    </div>
                   </details>
                 </div>
               );

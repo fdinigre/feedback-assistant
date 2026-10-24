@@ -4,6 +4,7 @@ import { isParseApproved } from "@/lib/assessment/dp-paths";
 import type { AssessmentRow } from "@/lib/types";
 import { NameMaskEditor } from "./NameMaskEditor";
 import { NoNameMaskToggle } from "./NoNameMaskToggle";
+import { ReportInstructions } from "./ReportInstructions";
 import { DpFileUpload } from "./DpFileUpload";
 import { DpParseSection } from "./DpParseSection";
 import { DpCoverTargets } from "./DpCoverTargets";
@@ -137,6 +138,22 @@ export function DpSetup({ assessment }: { assessment: AssessmentRow }) {
               />
             );
           })()}
+      </section>
+
+      {/* Report instructions */}
+      <section className="mt-10">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Report instructions <span className="text-sm font-normal text-slate-500">(optional)</span>
+        </h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Tell the report writer something specific about this assessment, on top of the standard
+          instructions or instead of them.
+        </p>
+        <ReportInstructions
+          assessmentId={assessment.id}
+          text={assessment.report_instructions}
+          mode={assessment.report_instructions_mode}
+        />
       </section>
     </div>
   );

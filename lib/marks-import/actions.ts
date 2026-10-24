@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/queries";
 import type { MarksUploadSummary } from "@/lib/types";
 import { buildMarksDiff } from "./diff";
+import { saveTypedMarks, type TypedMark } from "./typed";
 import { MarksSheetError, parseMarksSheet } from "./parse";
 import {
   applySheetMarks,
@@ -103,6 +104,27 @@ export async function uploadMarksSheetAction(
   );
 
   return { error: null };
+}
+
+export type TypedMarksResult = { error: string | null; saved: number; differing: number; settled: number };
+
+/**
+ * Marks typed into the table instead of uploaded. Like an upload, this changes no
+ * mark: where a typed mark differs from the app's it waits to be settled.
+ */
+export async function saveTypedMarksAction(assessmentId: number, marks: TypedMark[]): Promise<TypedMarksResult> {
+  const assessment = getAssessment(assessmentId);
+  if (!assessment) return { error: "Assessment not found.", saved: 0, differing: 0, settled: 0 };
+  if (!Array.isArray(marks)) return { error: "Nothing to save.", saved: 0, differing: 0, settled: 0 };
+  const clean: TypedMark[] = marks.map((m) => ({
+    submissionId: Number(m.submissionId),
+    questionId: Number(m.questionId),
+    part: typeof m.part === "string" ? m.part : "",
+    value: m.value === null || m.value === undefined ? null : Number(m.value),
+  }));
+  const result = saveTypedMarks(assessment, clean);
+  revalidate(assessmentId, result.touched);
+  return { error: result.error, saved: result.saved, differing: result.differing, settled: result.settled };
 }
 
 export type MarksApplyResult = {

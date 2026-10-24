@@ -182,6 +182,10 @@ export type AssessmentRow = {
   cover_targets: string[] | null; // parsed JSON
   /** The teacher has said these papers carry no student names: no mask is required. */
   no_name_mask: boolean;
+  /** The teacher's own instructions for this assessment's reports; null = none. */
+  report_instructions: string | null;
+  /** 'add': after the standard rules. 'replace': instead of them. */
+  report_instructions_mode: "add" | "replace";
   created_at: string;
 };
 

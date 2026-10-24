@@ -28,6 +28,12 @@ import type {
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import { atlCommentRule, atlFocusJsonShape, parseAtlFocus } from "@/lib/atl/report-focus";
 import { cleanGemPrompt, GEM_PROMPT_JSON_FIELD, gemPromptRule } from "@/lib/report/gem-prompt";
+import { nextStepsRule } from "@/lib/report/next-steps";
+import {
+  composeWritingRules,
+  reportFieldHints,
+  reportStructureBlock,
+} from "@/lib/report/instructions";
 import { runClaudeJson } from "@/lib/pipeline/run";
 import { pickFinal, sumQuestionMarks } from "@/lib/submissions/dp-calc";
 import { recomputeAndPersistDpResult } from "@/lib/submissions/dp-grading";
@@ -315,6 +321,8 @@ export async function generateDpReport(submissionId: number): Promise<DpReportRe
     hasAnyCorrelationData,
     styleComments,
     structure,
+    instructionsText: assessment.report_instructions,
+    instructionsMode: assessment.report_instructions_mode,
   });
 
   const parsed = await runClaudeJson<ReportSections>({
@@ -374,6 +382,9 @@ function buildDpReportPrompt(args: {
   hasAnyCorrelationData: boolean;
   styleComments: string;
   structure: string;
+  /** The teacher's own instructions for this assessment, and whether they add to or replace the standard rules. */
+  instructionsText: string | null;
+  instructionsMode: "add" | "replace";
 }): string {
   const {
     pseudonym,
@@ -398,6 +409,8 @@ function buildDpReportPrompt(args: {
     hasAnyCorrelationData,
     styleComments,
     structure,
+    instructionsText,
+    instructionsMode,
   } = args;
 
   const correlationSources = [
@@ -416,6 +429,65 @@ function buildDpReportPrompt(args: {
       }`
     : "there is NO prior-year grade, no prior DP assessment history, and NO MAP/CAT4 data on file for this student — return null for dataCorrelation. Do NOT invent any data or comparison.";
 
+  const instructions = { text: instructionsText, mode: instructionsMode };
+  const fieldHints = reportFieldHints(instructions);
+  const standardRules = `WRITING RULES:
+STYLE (applies to every section) — write for the STUDENT to read, in flowing prose, second person ("you"),
+and keep it DIGESTIBLE:
+  - Do NOT cite question numbers or labels (no "Q7", "Q12(c)", "part (b)"). Refer to the SKILL or topic by name
+    (e.g. "the financial-maths question", "the normal-distribution work", "the χ² test").
+  - Do NOT quote point tallies ("6/6", "2/18", "0/7") and do NOT dump raw input values (calculator entries,
+    long decimals). Keep only the substance: what was done well or went wrong, and what to do about it.
+  - CONSOLIDATE: group related observations into a few substantial sentences. Aim for at most 4-5 strengths and
+    5-6 areas — the most important patterns, not one item per question. Short and clear beats exhaustive.
+1. Data Correlation: ${dataCorrelationRule} Keep it to one tight paragraph; refer to skills by name, not by
+   question number or per-question point tally.
+2. Learning targets: name the specific skills/targets when discussing strengths and areas (this assessment and,
+   when available, the trend vs. prior DP assessments) — but as skill names, never as question references.
+3. Strengths: a few areas the student handled well, each naming the skill and describing the correct habit they
+   showed (e.g. deriving the target value before entering it, using the negative-reciprocal reasoning). Prose,
+   no question numbers, no scores.
+4. Areas for Improvement: name each specific error PATTERN and the skill it belongs to (e.g. adding along tree
+   branches instead of multiplying, dividing by their own estimate in percentage error, leaving the long
+   statistics questions blank). Be honest about blank/unattempted work and pacing — but describe it as a pattern,
+   not a question-by-question list. Prose, no question numbers, no scores.
+5. ${nextStepsRule("DP")}
+6. Feedback Comment: a SINGLE paragraph of roughly 70-90 words addressing the student as {{NAME}} using "you".
+   Structure: a specific strength with evidence -> the specific errors that limited the score -> one actionable next
+   step tied to grade-band language (e.g. "to move from a grade 5 into a grade 6..."). Encouraging without inflating.
+   TEACHER'S RULE — the comment must be SELF-CONTAINED: it must explicitly mention at least one strength and at
+   least one concrete, directly actionable step drawn from your own Strengths / Actionable Steps sections above
+   (something concrete the student can do, not vague advice and never a made-up technique name). A comment that
+   identifies problems without telling
+   the student what to DO about them is unacceptable.
+${atlCommentRule()}
+   Match the VOICE of these real teacher examples (do not copy their content, and use {{NAME}} instead of any name):
+${styleComments}
+6. Toddle Report (longer student-facing comment): a friendly, plain-language version the student reads on
+   Toddle. Write it as ONE string with line breaks in EXACTLY this shape (keep the headings verbatim):
+     A warm 1-2 sentence introduction addressed to {{NAME}} (use "you"), naming the assessment topic and the
+     overall gist without any score.
+     (blank line)
+     What went well:
+     - 2-4 short bullets drawn from Strengths, rewritten in easy student language (no jargon, no question
+       numbers, no scores).
+     (blank line)
+     What to work on:
+     - 2-4 short bullets drawn from Areas for Improvement, phrased kindly and concretely.
+     (blank line)
+     Your next steps:
+     - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can do in their next
+       assessments; keep a step's "On calculator papers:" opening where it has one.
+   Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+`;
+  const writingRules = composeWritingRules({
+    standardRules,
+    instructions,
+    fixed: {
+      dataCorrelation: dataCorrelationRule,
+      atl: `${atlCommentRule()}\nVOICE EXAMPLES — match this voice unless the teacher's instructions say otherwise (use {{NAME}} instead of any name, do not copy their content):\n${styleComments}`,
+    },
+  });
   return `Write a full analytical report for DP student ${pseudonym} on the ${typeLabel} "${assessmentTitle}"${
     className ? ` (${className})` : ""
   }.
@@ -424,10 +496,7 @@ Everything must be grounded in the graded evidence below. Do NOT invent facts, s
 CRITICAL — PRIVACY: Never write the student's real name. In the feedbackComment, address the student using the
 literal token {{NAME}} (the tool re-injects the real name locally). Use "you" throughout the comment.
 
-REPORT STRUCTURE TO FOLLOW:
-${structure}
-
-THIS ASSESSMENT — RESULT:
+${reportStructureBlock(structure, instructions)}THIS ASSESSMENT — RESULT:
 Total: ${totalMarks}/${maxMarks} marks = ${formatPct(pct)}% -> Grade ${grade} (IB 1-7 scale)
 Grade boundaries used for this assessment:
 ${boundariesBlock}
@@ -452,53 +521,7 @@ ${priorGradesBlock}
 EXTERNAL DATA (MAP percentile/strand deltas, CAT4 SAS) for ${pseudonym}:
 ${externalBlock}
 ${hasExternalData ? `\n${EXTERNAL_DATA_INTERPRETATION_GUIDE}\n` : ""}
-WRITING RULES:
-STYLE (applies to every section) — write for the STUDENT to read, in flowing prose, second person ("you"),
-and keep it DIGESTIBLE:
-  - Do NOT cite question numbers or labels (no "Q7", "Q12(c)", "part (b)"). Refer to the SKILL or topic by name
-    (e.g. "the financial-maths question", "the normal-distribution work", "the χ² test").
-  - Do NOT quote point tallies ("6/6", "2/18", "0/7") and do NOT dump raw input values (calculator entries,
-    long decimals). Keep only the substance: what was done well or went wrong, and the named technique behind it.
-  - CONSOLIDATE: group related observations into a few substantial sentences. Aim for at most 4-5 strengths and
-    5-6 areas — the most important patterns, not one item per question. Short and clear beats exhaustive.
-1. Data Correlation: ${dataCorrelationRule} Keep it to one tight paragraph; refer to skills by name, not by
-   question number or per-question point tally.
-2. Learning targets: name the specific skills/targets when discussing strengths and areas (this assessment and,
-   when available, the trend vs. prior DP assessments) — but as skill names, never as question references.
-3. Strengths: a few areas the student handled well, each naming the skill and the correct habit/technique they
-   showed (e.g. deriving the target value before entering it, using the negative-reciprocal reasoning). Prose,
-   no question numbers, no scores.
-4. Areas for Improvement: name each specific error PATTERN and the skill it belongs to (e.g. adding along tree
-   branches instead of multiplying, dividing by their own estimate in percentage error, leaving the long
-   statistics questions blank). Be honest about blank/unattempted work and pacing — but describe it as a pattern,
-   not a question-by-question list. Prose, no question numbers, no scores.
-5. Actionable Steps: concrete, named techniques and drills (not generic advice), tied to the skills above. No
-   question numbers.
-6. Feedback Comment: a SINGLE paragraph of roughly 70-90 words addressing the student as {{NAME}} using "you".
-   Structure: a specific strength with evidence -> the specific errors that limited the score -> one actionable next
-   step tied to grade-band language (e.g. "to move from a grade 5 into a grade 6..."). Encouraging without inflating.
-   TEACHER'S RULE — the comment must be SELF-CONTAINED: it must explicitly mention at least one strength and at
-   least one concrete, directly actionable step drawn from your own Strengths / Actionable Steps sections above
-   (a named technique the student can apply, not vague advice). A comment that identifies problems without telling
-   the student what to DO about them is unacceptable.
-${atlCommentRule()}
-   Match the VOICE of these real teacher examples (do not copy their content, and use {{NAME}} instead of any name):
-${styleComments}
-6. Toddle Report (longer student-facing comment): a friendly, plain-language version the student reads on
-   Toddle. Write it as ONE string with line breaks in EXACTLY this shape (keep the headings verbatim):
-     A warm 1-2 sentence introduction addressed to {{NAME}} (use "you"), naming the assessment topic and the
-     overall gist without any score.
-     (blank line)
-     What went well:
-     - 2-4 short bullets drawn from Strengths, rewritten in easy student language (no jargon, no question
-       numbers, no scores).
-     (blank line)
-     What to work on:
-     - 2-4 short bullets drawn from Areas for Improvement, phrased kindly and concretely.
-     (blank line)
-     Your next steps:
-     - 2-4 short bullets drawn from Actionable Steps, each a clear thing the student can actually do.
-   Keep every bullet to one simple sentence a student would easily understand. Encouraging and specific.
+${writingRules}
 ${gemPromptRule(gemStudentLabel)}
 
 Return ONLY strict JSON, exactly this shape:
@@ -507,8 +530,8 @@ Return ONLY strict JSON, exactly this shape:
   "strengths": [ "<string>" ],
   "areasForImprovement": [ "<string>" ],
   "actionableSteps": [ "<string>" ],
-  "feedbackComment": "<single paragraph, ~70-90 words, addresses {{NAME}}>",
-  "toddleReport": "<multi-line student-facing comment in the shape described in rule 6>",
+  "feedbackComment": "${fieldHints.feedbackComment}",
+  "toddleReport": "${fieldHints.toddleReport}",
   ${GEM_PROMPT_JSON_FIELD}
   ${atlFocusJsonShape()}
 }
