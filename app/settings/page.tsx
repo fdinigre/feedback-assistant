@@ -1,6 +1,7 @@
 import {
   getAppSetting,
   getIaChecklist,
+  getIaCriterionNotes,
   listAiRequests,
   listAllMarkingInstructions,
   listAssessments,
@@ -9,6 +10,7 @@ import {
 import { StyleExamplesSection } from "./_components/StyleExamplesSection";
 import { MarkingInstructionsSection } from "./_components/MarkingInstructionsSection";
 import { IaChecklistSection } from "./_components/IaChecklistSection";
+import { IaCriterionNotesSection } from "./_components/IaCriterionNotesSection";
 import { AiRequestLog } from "./_components/AiRequestLog";
 import { aiProvider } from "@/lib/ai/provider";
 import { EffortSection } from "./_components/EffortSection";
@@ -25,6 +27,7 @@ export default function SettingsPage() {
   const markingInstructions = listAllMarkingInstructions();
   const assessmentTitles = Object.fromEntries(listAssessments().map((a) => [a.id, a.title]));
   const iaChecklist = getIaChecklist();
+  const iaCriterionNotes = getIaCriterionNotes();
   const effort = {
     studentWork: parseEffort(getAppSetting(EFFORT_SETTING_KEY.studentWork)) ?? EFFORT_DEFAULTS.studentWork,
     setup: parseEffort(getAppSetting(EFFORT_SETTING_KEY.setup)) ?? EFFORT_DEFAULTS.setup,
@@ -42,6 +45,8 @@ export default function SettingsPage() {
       <StyleExamplesSection commentExamples={commentExamples} reportExamples={reportExamples} />
 
       <MarkingInstructionsSection rows={markingInstructions} assessmentTitles={assessmentTitles} />
+
+      <IaCriterionNotesSection notes={iaCriterionNotes} />
 
       <IaChecklistSection checklist={iaChecklist} />
 

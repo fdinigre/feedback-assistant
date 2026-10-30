@@ -599,6 +599,19 @@ export interface IaFinalMarks {
   authenticity?: IaAuthenticity;
 }
 
+/** Whether a rubric checklist statement is true of the draft (negative statements included). */
+export type IaChecklistStatus = "evident" | "partly" | "not_evident";
+
+/** One rubric checklist item (see lib/ia/rubric-items.ts) as judged on a draft. */
+export interface IaChecklistMark {
+  id: string; // e.g. "A2.3" — criterion, band, position in that band
+  status?: IaChecklistStatus; // the AI's judgement; absent = not evident
+  quote?: string; // verbatim from the draft, when there is something to quote
+  location?: string;
+  teacherStatus?: IaChecklistStatus; // the teacher's override
+  comment?: string; // the teacher's comment on this item
+}
+
 export interface IaDraftCriterionFeedback {
   criterion: IaCriterionKey;
   level: number; // 0..max — the level currently evidenced in the draft
@@ -606,12 +619,34 @@ export interface IaDraftCriterionFeedback {
   strengths: string[];
   gaps: string[]; // what is missing to reach the next band up
   suggestions: string[]; // concrete fixes to get there
+  checklist?: IaChecklistMark[]; // only items the AI or the teacher touched
+  teacherComment?: string; // the teacher's own comment on this criterion
+}
+
+/** One problem the math check found in the draft. */
+export interface IaMathFinding {
+  quote: string; // verbatim from the draft, where the problem is
+  location: string; // page or section
+  kind: "calculation" | "method" | "notation" | "reasoning" | "accuracy" | "other";
+  severity: "major" | "minor";
+  teacherNote: string; // what is wrong and what the correct result is — for the teacher only
+  studentNote: string; // points at the problem WITHOUT correcting it — may reach the student
+  dismissed?: boolean; // the teacher judged it not a problem; left out of the student copy
+}
+
+export interface IaMathCheck {
+  findings: IaMathFinding[];
+  checkedSummary: string; // what was checked and found correct, for the teacher
+  uncheckable: string[]; // what could not be verified and why (e.g. raw data not given)
+  usedPageImages: boolean; // false when only the text could be checked (Word file, scanned or too long)
 }
 
 export interface IaDraftFeedback {
   criteria: IaDraftCriterionFeedback[];
   summary: string;
   toddleComment?: string; // short, student-facing comment ready for Toddle
+  mathCheck?: IaMathCheck;
+  mathCheckError?: string; // the math check failed; the rest of the feedback still stands
 }
 
 export type IaDeadlineRow = {

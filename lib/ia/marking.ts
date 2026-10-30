@@ -6,11 +6,13 @@ import { runClaudeJson } from "@/lib/pipeline/run";
 import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import {
   getIaChecklist,
+  getIaCriterionNotes,
   getIaExploration,
   getLatestIaDocument,
   getStudent,
   insertIaOutput,
 } from "@/lib/db/queries";
+import { iaNotesPromptBlock } from "@/lib/ia/criterion-notes";
 import { IA_CRITERIA } from "@/lib/types";
 import type { IaAuthenticity, IaCriterionMark, IaFinalMarks, IaOutputRow } from "@/lib/types";
 
@@ -52,7 +54,8 @@ function buildPrompt(
   finalText: string,
   rubric: string,
   checklist: string,
-  calibration: string
+  calibration: string,
+  guideNotes: string
 ): string {
   return `You are marking the FINAL submission of an IB Diploma Mathematics: Applications and
 Interpretation SL Internal Assessment (Mathematical Exploration). Author pseudonym: ${pseudonym}.
@@ -62,7 +65,7 @@ Assess against these criteria (official maxima): ${criteriaSummary()}. Total is 
 
 TEACHER'S ANNOTATED RUBRIC (primary reference — use ITS descriptors, not a generic IB rubric):
 ${rubric}
-${checklistBlock(checklist)}${calibration ? `\nTEACHER'S CALIBRATED STANDARDS (apply these together with the rubric):\n${calibration}\n` : ""}
+${guideNotes}${checklistBlock(checklist)}${calibration ? `\nTEACHER'S CALIBRATED STANDARDS (apply these together with the rubric):\n${calibration}\n` : ""}
 MARKING RULE — generous within the rubric (teacher's standing rule for FINAL marking): actively look
 for the evidence that JUSTIFIES the higher of two adjacent bands, and award it whenever the rubric's
 descriptor for that band is genuinely met. Resolve honest ambiguity UPWARD, not downward. This is not
@@ -169,11 +172,12 @@ export async function generateFinalMarks(explorationId: number): Promise<IaOutpu
   const rubric = loadRubric();
   const checklist = getIaChecklist();
   const calibration = loadCalibration();
+  const guideNotes = iaNotesPromptBlock(getIaCriterionNotes());
 
   const raw = await runClaudeJson<IaFinalMarks>({
     purpose: "ia-final-marks",
     forbiddenNames,
-    prompt: buildPrompt(student.pseudonym, final.text, rubric, checklist, calibration),
+    prompt: buildPrompt(student.pseudonym, final.text, rubric, checklist, calibration, guideNotes),
   });
 
   const scrubbed = scrubAndClamp(raw, forbiddenNames);

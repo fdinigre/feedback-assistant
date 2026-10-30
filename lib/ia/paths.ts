@@ -11,3 +11,10 @@ export function iaDocumentsDir(explorationId: number): string {
   ensureDir(dir);
   return dir;
 }
+
+/** data/ia/<explorationId>/pages-<documentId>/ — name-redacted page images of one uploaded PDF. */
+export function iaPagesDir(explorationId: number, documentId: number): string {
+  const dir = path.join(DATA_DIR, "ia", String(explorationId), `pages-${documentId}`);
+  ensureDir(dir);
+  return dir;
+}

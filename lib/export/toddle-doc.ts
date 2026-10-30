@@ -181,7 +181,7 @@ export function collectToddleComments(assessment: AssessmentRow): { entries: Tod
     if (isDp) {
       const result = getDpResult(submission.id);
       if (result) {
-        gradeLine = `Grade ${result.grade_final ?? result.grade} (${result.pct.toFixed(0)}%)`;
+        gradeLine = `Marks ${result.total_marks}/${result.max_marks} &nbsp;·&nbsp; Grade ${result.grade_final ?? result.grade} (${result.pct.toFixed(0)}%)`;
       }
     } else if (isFmTest(assessment)) {
       const score = testScore(assessment, submission);

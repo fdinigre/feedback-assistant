@@ -2,6 +2,7 @@ import "server-only";
 
 import { getStudent, listCriterionLevels, listSubmissions } from "@/lib/db/queries";
 import { isFmTest } from "@/lib/assessment/course";
+import { refreshDpResults } from "@/lib/submissions/dp-grading";
 import { computeSubmissionGrade } from "@/lib/students/grade-cell";
 import type { AssessmentRow, SubmissionStatus } from "@/lib/types";
 
@@ -45,6 +46,8 @@ export type GradesTable = {
  */
 export function buildGradesTable(assessment: AssessmentRow): GradesTable {
   const kind = assessment.programme === "DP" || isFmTest(assessment) ? "summary" : "levels";
+  // Totals stored before a question was removed or re-marked are corrected here too.
+  if (assessment.programme === "DP") refreshDpResults(assessment.id);
   const rows: GradesRow[] = [];
   let marked = 0;
   let total = 0;
@@ -74,7 +77,7 @@ export function buildGradesTable(assessment: AssessmentRow): GradesTable {
       const grade = computeSubmissionGrade(assessment, submission);
       if (grade.kind === "dp") {
         summary = String(grade.grade);
-        summarySub = `${grade.pct.toFixed(0)}%`;
+        summarySub = `${grade.earned}/${grade.max} marks · ${grade.pct.toFixed(0)}%`;
       } else if (grade.kind === "points") {
         summary = grade.label;
       }

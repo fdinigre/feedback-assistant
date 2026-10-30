@@ -39,7 +39,7 @@ export function listStudentsForIndex(): ClassGroup[] {
           level: c.points[c.points.length - 1].level,
         })),
         latestOther:
-          other?.kind === "dp" ? `Grade ${other.grade}` : other?.kind === "points" ? other.label : null,
+          other?.kind === "dp" ? `Grade ${other.grade} (${other.earned}/${other.max})` : other?.kind === "points" ? other.label : null,
       };
     }),
   }));

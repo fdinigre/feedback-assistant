@@ -288,7 +288,7 @@ export default async function StudentProfilePage({
                   </Link>{" "}
                   <span className="text-slate-600">
                     {g.grade.kind === "dp"
-                      ? `grade ${g.grade.grade}`
+                      ? `grade ${g.grade.grade} · ${g.grade.earned}/${g.grade.max}`
                       : g.grade.kind === "points"
                         ? g.grade.label
                         : ""}

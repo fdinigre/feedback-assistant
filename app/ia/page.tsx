@@ -4,12 +4,16 @@ import { dpCourseYear } from "@/lib/assessment/course";
 import {
   getClassesByProgramme,
   getIaExplorationByStudent,
+  getLatestIaDocument,
+  getLatestIaOutput,
   listIaDeadlines,
   listIaProgress,
   listStudents,
 } from "@/lib/db/queries";
 import { DeadlineEditor } from "./_components/DeadlineEditor";
 import { IaRoster, type RosterRow } from "./_components/IaRoster";
+import { IaBatchUpload, type BatchStudent } from "./_components/IaBatchUpload";
+import { IaClassFeedback, type ClassFeedbackRow } from "./_components/IaClassFeedback";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +36,29 @@ export default async function IaPage({
     const progress = exploration ? listIaProgress(exploration.id) : [];
     const doneMap = Object.fromEntries(progress.map((p) => [p.milestone, p.completed_at]));
     return { student, doneMap, topic: exploration?.topic ?? "" };
+  });
+
+  const batchStudents: BatchStudent[] = students.map((student) => {
+    const exploration = getIaExplorationByStudent(student.id);
+    return {
+      id: student.id,
+      name: student.name,
+      hasDraft: exploration ? !!getLatestIaDocument(exploration.id, "draft") : false,
+      hasFinal: exploration ? !!getLatestIaDocument(exploration.id, "final") : false,
+    };
+  });
+
+  const feedbackRows: ClassFeedbackRow[] = students.map((student) => {
+    const exploration = getIaExplorationByStudent(student.id);
+    const draft = exploration ? getLatestIaDocument(exploration.id, "draft") : undefined;
+    const feedback = exploration ? getLatestIaOutput(exploration.id, "draft_feedback") : undefined;
+    return {
+      studentId: student.id,
+      name: student.name,
+      explorationId: exploration?.id ?? null,
+      draftAt: draft?.uploaded_at ?? null,
+      feedbackAt: feedback?.created_at ?? null,
+    };
   });
 
   return (
@@ -76,6 +103,10 @@ export default async function IaPage({
                 <h2 className="text-lg font-medium">Class deadlines</h2>
                 <DeadlineEditor classId={selectedClass.id} deadlineMap={deadlineMap} />
               </section>
+
+              <IaBatchUpload key={selectedClass.id} students={batchStudents} />
+
+              <IaClassFeedback key={`fb-${selectedClass.id}`} rows={feedbackRows} />
 
               <section>
                 <h2 className="text-lg font-medium">Students ({rows.length})</h2>

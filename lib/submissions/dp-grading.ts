@@ -8,7 +8,7 @@ import "server-only";
 // touching lib/db/queries.ts, lib/db/schema.sql, or lib/types.ts.
 
 import { getDb } from "@/lib/db";
-import { getAssessment, listQuestions, upsertDpResult } from "@/lib/db/queries";
+import { getAssessment, getDpResult, listQuestions, listSubmissions, upsertDpResult } from "@/lib/db/queries";
 import type { DpGradingQuestion, DpResultRow } from "@/lib/types";
 import { buildMarkValueMap, pctOf, pickFinal, sumSubmissionMarks, computeDpGrade } from "./dp-calc";
 
@@ -88,6 +88,20 @@ export function recomputeAndPersistDpResult(assessmentId: number, submissionId: 
     grade,
     grade_final: grade,
   });
+}
+
+/**
+ * Brings every graded paper's stored total, percentage and grade back in line with
+ * the assessment's questions as they are now. Removing a question, or changing its
+ * marks, changes every paper's total; the stored result is what the Grades table,
+ * the gradebook and the exports read, so it must follow. Safe to repeat: papers whose
+ * result already matches are written back unchanged.
+ */
+export function refreshDpResults(assessmentId: number): void {
+  for (const submission of listSubmissions(assessmentId)) {
+    if (!getDpResult(submission.id)) continue; // not graded yet: nothing to correct
+    recomputeAndPersistDpResult(assessmentId, submission.id);
+  }
 }
 
 // Re-export for convenience so callers only need one import in most cases.

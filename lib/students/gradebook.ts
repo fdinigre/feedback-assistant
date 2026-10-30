@@ -38,7 +38,7 @@ export function computeClassGradebook(classId: number): ClassGradebook {
       }
 
       const grade = computeSubmissionGrade(assessment, submission);
-      const sub = grade.kind === "dp" ? `${grade.pct.toFixed(0)}%` : undefined;
+      const sub = grade.kind === "dp" ? `${grade.earned}/${grade.max} · ${grade.pct.toFixed(0)}%` : undefined;
       cells[assessment.id] = {
         submissionId: submission.id,
         display: formatCompact(grade),

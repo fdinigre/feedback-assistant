@@ -1,4 +1,5 @@
 import "server-only";
+import { parseIaCriterionNotes, serializeIaCriterionNotes, type IaCriterionNotes } from "@/lib/ia/criterion-notes";
 
 import { getDb } from "@/lib/db";
 import type {
@@ -2273,6 +2274,15 @@ export function getIaChecklist(): string {
 }
 export function setIaChecklist(text: string): void {
   setAppSetting(IA_CHECKLIST_KEY, text);
+}
+
+/** The IB-guide notes per Exploration criterion: the teacher's edits over the built-in defaults. */
+export const IA_CRITERION_NOTES_KEY = "ia_criterion_notes";
+export function getIaCriterionNotes(): IaCriterionNotes {
+  return parseIaCriterionNotes(getAppSetting(IA_CRITERION_NOTES_KEY));
+}
+export function setIaCriterionNotes(notes: Partial<IaCriterionNotes>): void {
+  setAppSetting(IA_CRITERION_NOTES_KEY, serializeIaCriterionNotes(notes));
 }
 
 // ---------------------------------------------------------------------------

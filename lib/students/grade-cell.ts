@@ -28,7 +28,7 @@ export type CriterionLevelResult = {
 
 export type SubmissionGrade =
   | { kind: "none" }
-  | { kind: "dp"; grade: number; pct: number }
+  | { kind: "dp"; grade: number; pct: number; earned: number; max: number }
   | { kind: "points"; earned: number; max: number; label: string }
   | { kind: "myp"; levels: CriterionLevelResult[] };
 
@@ -39,7 +39,13 @@ export function computeSubmissionGrade(
   if (assessment.programme === "DP") {
     const result = getDpResult(submission.id);
     if (!result) return { kind: "none" };
-    return { kind: "dp", grade: result.grade_final ?? result.grade, pct: result.pct };
+    return {
+      kind: "dp",
+      grade: result.grade_final ?? result.grade,
+      pct: result.pct,
+      earned: result.total_marks,
+      max: result.max_marks,
+    };
   }
 
   if (isFmTest(assessment)) {

@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { notFound } from "next/navigation";
 import {
   findOrCreateIaExploration,
@@ -13,6 +15,7 @@ import { dpCourseYear } from "@/lib/assessment/course";
 import { TopicForm } from "./_components/TopicForm";
 import { MilestoneList } from "./_components/MilestoneList";
 import { UploadAndOutputsClient } from "./_components/UploadAndOutputsClient";
+import { parseRubricItems } from "@/lib/ia/rubric-items";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +36,17 @@ export default async function ExplorationPage({
   const documents = listIaDocuments(exploration.id);
   const outputs = listIaOutputs(exploration.id);
   const deadlines = cls ? listIaDeadlines(cls.id) : [];
+
+  let rubricText = "";
+  try {
+    rubricText = fs.readFileSync(
+      path.join(process.cwd(), "specs", "reference", "exploration-rubric-sl-v1.4.txt"),
+      "utf-8"
+    );
+  } catch {
+    // no rubric file: the checklist simply doesn't show
+  }
+  const rubric = parseRubricItems(rubricText);
 
   const doneMap = Object.fromEntries(progress.map((p) => [p.milestone, p.completed_at]));
   const deadlineMap = Object.fromEntries(deadlines.map((d) => [d.milestone, d.due_date]));
@@ -68,6 +82,7 @@ export default async function ExplorationPage({
         pseudonym={student.pseudonym}
         documents={documents}
         outputs={outputs}
+        rubric={rubric}
       />
     </div>
   );

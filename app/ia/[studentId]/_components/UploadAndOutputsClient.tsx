@@ -12,6 +12,9 @@ import {
   type IaOutputRow,
 } from "@/lib/types";
 import { injectNameDraftFeedback, injectNameFinalMarks } from "@/lib/ia/render";
+import type { RubricCriterion } from "@/lib/ia/rubric-items";
+import { ChecklistPanel } from "./ChecklistPanel";
+import { MathCheckPanel } from "./MathCheckPanel";
 
 const MAX_BY_CRITERION: Record<string, number> = Object.fromEntries(
   IA_CRITERIA.map((c) => [c.key, c.max])
@@ -79,12 +82,15 @@ export function UploadAndOutputsClient({
   pseudonym,
   documents,
   outputs,
+  rubric,
 }: {
   explorationId: number;
   studentName: string;
   pseudonym: string;
   documents: IaDocumentRow[];
   outputs: IaOutputRow[];
+  /** The annotated rubric split into checklist items (lib/ia/rubric-items.ts). */
+  rubric: RubricCriterion[];
 }) {
   const router = useRouter();
   const draftDoc = latestByKind(documents, "draft");
@@ -180,6 +186,17 @@ export function UploadAndOutputsClient({
     } finally {
       setSavingFeedback(false);
     }
+  }
+
+  // Saves first, so the PDF carries every edit on screen, then downloads.
+  async function downloadPdf(version: "teacher" | "student") {
+    await saveFeedback();
+    const a = document.createElement("a");
+    a.href = `/api/ia/draft-feedback/pdf?explorationId=${explorationId}&version=${version}`;
+    a.download = "";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   }
 
   async function approveFeedback() {
@@ -304,11 +321,17 @@ export function UploadAndOutputsClient({
                   Colour shows how close each criterion is to its maximum on the current draft.
                   Levels and comments are editable — adjust, then Save.
                 </p>
+                <MathCheckPanel
+                  check={feedback.mathCheck}
+                  error={feedback.mathCheckError}
+                  onChange={(mathCheck) => setFeedback((prev) => (prev ? { ...prev, mathCheck } : prev))}
+                />
                 {feedback.criteria.map((c, idx) => (
                   <CriterionFeedback
                     key={c.criterion}
                     mark={c}
                     max={MAX_BY_CRITERION[c.criterion] ?? 0}
+                    rubric={rubric.find((r) => r.criterion === c.criterion)}
                     onChange={(next) =>
                       setFeedback((prev) => {
                         if (!prev) return prev;
@@ -333,7 +356,7 @@ export function UploadAndOutputsClient({
                   value={feedback.toddleComment ?? ""}
                   onChange={(v) => setFeedback((prev) => (prev ? { ...prev, toddleComment: v } : prev))}
                 />
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={saveFeedback}
@@ -353,6 +376,23 @@ export function UploadAndOutputsClient({
                       : approvingFeedback
                         ? "Approving…"
                         : "Approve feedback"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadPdf("teacher")}
+                    disabled={savingFeedback}
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Download teacher PDF
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadPdf("student")}
+                    disabled={savingFeedback}
+                    title="Highlights and comments only: no levels, no corrections"
+                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Download student PDF
                   </button>
                 </div>
               </div>
@@ -524,10 +564,12 @@ function AuthenticityPanel({ authenticity }: { authenticity: { level: "ok" | "lo
 function CriterionFeedback({
   mark,
   max,
+  rubric,
   onChange,
 }: {
   mark: IaDraftCriterionFeedback;
   max: number;
+  rubric: RubricCriterion | undefined;
   onChange: (next: IaDraftCriterionFeedback) => void;
 }) {
   const level = mark.level ?? 0;
@@ -577,6 +619,22 @@ function CriterionFeedback({
         label="Suggested fixes"
         items={mark.suggestions}
         onChange={(items) => onChange({ ...mark, suggestions: items })}
+      />
+      <div className="mt-2">
+        <label className="block text-xs font-medium text-slate-500">Your comment on this criterion</label>
+        <textarea
+          value={mark.teacherComment ?? ""}
+          onChange={(e) => onChange({ ...mark, teacherComment: e.target.value })}
+          rows={2}
+          placeholder="Anything you want to add for this criterion"
+          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        />
+      </div>
+      <ChecklistPanel
+        rubric={rubric}
+        marks={mark.checklist ?? []}
+        level={level}
+        onChange={(checklist) => onChange({ ...mark, checklist })}
       />
     </div>
   );

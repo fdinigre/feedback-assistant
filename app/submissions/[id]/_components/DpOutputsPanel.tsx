@@ -90,7 +90,8 @@ export function DpOutputsPanel({
         </p>
         {gradeFinal !== null && (
           <p className="mt-3 text-sm font-medium text-slate-700">
-            Grade to record in Toddle: <span className="font-semibold">{gradeFinal} / 7</span>
+            Marks: <span className="font-semibold">{total} / {maxTotal}</span> · Grade to record in Toddle:{" "}
+            <span className="font-semibold">{gradeFinal} / 7</span>
           </p>
         )}
       </div>
@@ -161,7 +162,7 @@ export function DpOutputsPanel({
           </tbody>
         </table>
         <p className="mt-2 text-sm font-medium text-slate-700">
-          {pct !== null && <>{pct.toFixed(1)}% · </>}
+          Marks: {total} / {maxTotal} · {pct !== null && <>{pct.toFixed(1)}% · </>}
           Grade: {gradeFinal ?? "—"} / 7
         </p>
       </div>

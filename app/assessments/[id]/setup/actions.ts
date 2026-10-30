@@ -16,6 +16,7 @@ import {
 } from "@/lib/db/queries";
 import type { DpQuestionScheme, GradeBoundary } from "@/lib/types";
 import { computeDpGrade } from "@/lib/pipeline/grade-dp-core";
+import { refreshDpResults } from "@/lib/submissions/dp-grading";
 import { parseMarkscheme } from "@/lib/pipeline/ms-parse";
 import { extractCoverTargets, matchTargetsToQuestions } from "@/lib/assessment/cover-targets";
 import { validateBoundaries } from "@/lib/assessment/dp-boundaries";
@@ -143,6 +144,7 @@ export async function saveDpQuestionScheme(
   }
   const totalMarks = Number.isFinite(scheme.totalMarks) ? scheme.totalMarks : 0;
   updateQuestion(questionId, { number, dp_scheme: scheme, max_points: totalMarks });
+  refreshDpResults(assessmentId);
   // Warnings about the old number would point at a question that is no longer called that.
   if (number !== question.number.trim()) dropQuestionWarnings(assessmentId, question.number.trim());
   // Editing the parse manually invalidates any previous approval.
@@ -161,6 +163,8 @@ export async function deleteDpQuestionAction(assessmentId: number, questionId: n
   const question = getQuestion(questionId);
   if (!question || question.assessment_id !== assessmentId) return;
   deleteQuestionCascade(questionId);
+  // Every paper's total changes with the question gone: bring the stored results along.
+  refreshDpResults(assessmentId);
   dropQuestionWarnings(assessmentId, question.number.trim());
   clearParseApproved(assessmentId);
   syncAssessmentStatus(assessmentId);

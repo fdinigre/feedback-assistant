@@ -101,3 +101,19 @@ export async function bulkSaveTopicsAction(
   revalidatePath("/ia");
   return { error: null, changed };
 }
+
+/**
+ * Makes sure each student has an exploration record, and returns its id — the batch
+ * upload needs one per file before it can post to /api/ia/upload.
+ */
+export async function ensureIaExplorationsAction(
+  studentIds: number[]
+): Promise<{ error: string | null; explorationIds: Record<number, number> }> {
+  const explorationIds: Record<number, number> = {};
+  if (!Array.isArray(studentIds)) return { error: "Nothing to upload.", explorationIds };
+  for (const studentId of studentIds) {
+    if (!Number.isInteger(studentId)) continue;
+    explorationIds[studentId] = findOrCreateIaExploration(studentId).id;
+  }
+  return { error: null, explorationIds };
+}

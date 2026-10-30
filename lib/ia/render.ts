@@ -12,7 +12,25 @@ export function injectNameDraftFeedback(
   studentName: string,
   pseudonym?: string
 ): IaDraftFeedback {
+  const n = (t: string) => injectName(t, studentName, pseudonym);
   return {
+    ...(fb.mathCheck
+      ? {
+          mathCheck: {
+            ...fb.mathCheck,
+            checkedSummary: n(fb.mathCheck.checkedSummary),
+            uncheckable: fb.mathCheck.uncheckable.map(n),
+            findings: fb.mathCheck.findings.map((f) => ({
+              ...f,
+              quote: n(f.quote),
+              location: n(f.location),
+              teacherNote: n(f.teacherNote),
+              studentNote: n(f.studentNote),
+            })),
+          },
+        }
+      : {}),
+    ...(fb.mathCheckError ? { mathCheckError: fb.mathCheckError } : {}),
     summary: injectName(fb.summary, studentName, pseudonym),
     toddleComment: fb.toddleComment
       ? injectName(fb.toddleComment, studentName, pseudonym)
@@ -27,6 +45,15 @@ export function injectNameDraftFeedback(
       strengths: c.strengths.map((s) => injectName(s, studentName, pseudonym)),
       gaps: c.gaps.map((s) => injectName(s, studentName, pseudonym)),
       suggestions: c.suggestions.map((s) => injectName(s, studentName, pseudonym)),
+      checklist: (c.checklist ?? []).map((m) => ({
+        ...m,
+        quote: m.quote ? injectName(m.quote, studentName, pseudonym) : m.quote,
+        location: m.location ? injectName(m.location, studentName, pseudonym) : m.location,
+        comment: m.comment ? injectName(m.comment, studentName, pseudonym) : m.comment,
+      })),
+      ...(c.teacherComment !== undefined
+        ? { teacherComment: injectName(c.teacherComment, studentName, pseudonym) }
+        : {}),
     })),
   };
 }

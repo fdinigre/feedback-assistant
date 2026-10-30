@@ -50,7 +50,7 @@ export function buildSubmissionReport(
   let gradeLine: string | null = null;
   if (assessment.programme === "DP") {
     const result = getDpResult(submission.id);
-    if (result) gradeLine = `Grade: ${result.grade_final ?? result.grade} (${result.pct.toFixed(0)}%)`;
+    if (result) gradeLine = `Marks: ${result.total_marks}/${result.max_marks} · Grade: ${result.grade_final ?? result.grade} (${result.pct.toFixed(0)}%)`;
   } else if (isFmTest(assessment)) {
     const score = testScore(assessment, submission);
     if (score) gradeLine = `Score: ${formatTestScore(score)}`;
