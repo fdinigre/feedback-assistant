@@ -639,6 +639,8 @@ export interface IaMathCheck {
   checkedSummary: string; // what was checked and found correct, for the teacher
   uncheckable: string[]; // what could not be verified and why (e.g. raw data not given)
   usedPageImages: boolean; // false when only the text could be checked (Word file, scanned or too long)
+  documentId?: number; // the uploaded draft this check was run on
+  checkedAt?: string; // ISO time the check finished
 }
 
 export interface IaDraftFeedback {

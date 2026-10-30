@@ -65,7 +65,7 @@ export default async function ExplorationPage({
       <section>
         <h2 className="text-lg font-medium">Topic</h2>
         <div className="mt-2">
-          <TopicForm studentId={studentId} topic={exploration.topic} />
+          <TopicForm key={exploration.topic ?? ""} studentId={studentId} topic={exploration.topic} />
         </div>
       </section>
 

@@ -121,7 +121,7 @@ function summaryHtml(args: {
   const parts: string[] = [];
   parts.push(`<h1>IA draft feedback${teacher ? " — teacher copy" : ""}</h1><p class="sub">${esc(studentName)}</p>`);
 
-  if (teacher) {
+  if (teacher && fb.criteria.length > 0) {
     const total = fb.criteria.reduce((s, c) => s + (c.level ?? 0), 0);
     parts.push(
       `<table><tr><th></th><th>Criterion</th><th>Level</th></tr>${fb.criteria
@@ -138,6 +138,12 @@ function summaryHtml(args: {
         }${list("Strengths", c.strengths)}${list("To reach the next band", c.gaps)}${list("Suggested fixes (not for the student)", c.suggestions)}</div>`
       );
     }
+    if (fb.mathCheck) {
+      parts.push(`<h2>Math check</h2><p>${esc(fb.mathCheck.checkedSummary)}</p>`);
+      if (fb.mathCheck.uncheckable.length) parts.push(`<p class="lab">Could not verify</p><ul>${fb.mathCheck.uncheckable.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`);
+    }
+  } else if (teacher) {
+    parts.push(`<p class="sub">Only the math check has run; the criteria come with the draft feedback.</p>`);
     if (fb.mathCheck) {
       parts.push(`<h2>Math check</h2><p>${esc(fb.mathCheck.checkedSummary)}</p>`);
       if (fb.mathCheck.uncheckable.length) parts.push(`<p class="lab">Could not verify</p><ul>${fb.mathCheck.uncheckable.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`);

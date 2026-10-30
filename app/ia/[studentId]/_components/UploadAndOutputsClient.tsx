@@ -147,6 +147,36 @@ export function UploadAndOutputsClient({
     }
   }
 
+  const [runningMath, setRunningMath] = useState(false);
+  const hasCriteria = !!feedback && feedback.criteria.length > 0;
+  const mathIsForThisDraft = !!feedback?.mathCheck && !!draftDoc && feedback.mathCheck.documentId === draftDoc.id;
+
+  // Runs only the math check (a few minutes); "Generate draft feedback" then reuses it.
+  async function runMathCheckOnly() {
+    setRunningMath(true);
+    setFeedbackError(null);
+    try {
+      const res = await fetch("/api/ia/math-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ explorationId }),
+      });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setFeedbackError(`Math check failed: ${(json && json.error) ?? `error ${res.status}`}`);
+        return;
+      }
+      const output = json.output as IaOutputRow;
+      setFeedback(injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym));
+      setFeedbackOutputId(output.id);
+      setFeedbackStatus(output.status);
+    } catch {
+      setFeedbackError("Network error — could not reach the server.");
+    } finally {
+      setRunningMath(false);
+    }
+  }
+
   async function generateFeedback() {
     setGeneratingFeedback(true);
     setFeedbackError(null);
@@ -165,6 +195,7 @@ export function UploadAndOutputsClient({
       setFeedback(injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym));
       setFeedbackOutputId(output.id);
       setFeedbackStatus(output.status);
+      router.refresh(); // a topic read from the paper shows up in the Topic box
     } catch {
       setFeedbackError("Network error — could not reach the server.");
     } finally {
@@ -236,6 +267,7 @@ export function UploadAndOutputsClient({
       setMarks(injectNameFinalMarks(output.content as IaFinalMarks, studentName, pseudonym));
       setMarksOutputId(output.id);
       setMarksStatus(output.status);
+      router.refresh();
     } catch {
       setMarksError("Network error — could not reach the server.");
     } finally {
@@ -308,11 +340,30 @@ export function UploadAndOutputsClient({
             <button
               type="button"
               onClick={generateFeedback}
-              disabled={generatingFeedback}
+              disabled={generatingFeedback || runningMath}
               className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
             >
-              {generatingFeedback ? "Generating…" : feedback ? "Regenerate feedback" : "Generate draft feedback"}
+              {generatingFeedback ? "Generating…" : hasCriteria ? "Regenerate feedback" : "Generate draft feedback"}
             </button>
+            <button
+              type="button"
+              onClick={runMathCheckOnly}
+              disabled={generatingFeedback || runningMath}
+              className="ml-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+            >
+              {runningMath ? "Checking the math…" : mathIsForThisDraft ? "Run math check again" : "Run math check only"}
+            </button>
+            {mathIsForThisDraft && !generatingFeedback && (
+              <p className="mt-1 text-xs text-slate-500">
+                Generating feedback reuses this draft&rsquo;s math check (and your edits to it); use
+                &ldquo;Run math check again&rdquo; to redo it.
+              </p>
+            )}
+            {feedback && !hasCriteria && (
+              <p className="mt-1 text-xs text-slate-500">
+                Only the math check has run so far — generate draft feedback for the criteria.
+              </p>
+            )}
             {feedbackError && <p className="mt-2 text-sm text-rose-700">{feedbackError}</p>}
 
             {feedback && (

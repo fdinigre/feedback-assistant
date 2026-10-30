@@ -14,6 +14,7 @@ import { DeadlineEditor } from "./_components/DeadlineEditor";
 import { IaRoster, type RosterRow } from "./_components/IaRoster";
 import { IaBatchUpload, type BatchStudent } from "./_components/IaBatchUpload";
 import { IaClassFeedback, type ClassFeedbackRow } from "./_components/IaClassFeedback";
+import type { IaDraftFeedback } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -52,12 +53,18 @@ export default async function IaPage({
     const exploration = getIaExplorationByStudent(student.id);
     const draft = exploration ? getLatestIaDocument(exploration.id, "draft") : undefined;
     const feedback = exploration ? getLatestIaOutput(exploration.id, "draft_feedback") : undefined;
+    const content = feedback?.content as IaDraftFeedback | undefined;
+    const math = content?.mathCheck;
     return {
       studentId: student.id,
       name: student.name,
       explorationId: exploration?.id ?? null,
       draftAt: draft?.uploaded_at ?? null,
-      feedbackAt: feedback?.created_at ?? null,
+      // A row holding only a math check is not feedback yet.
+      feedbackAt: feedback && (content?.criteria?.length ?? 0) > 0 ? feedback.created_at : null,
+      // Whether the latest draft has a math check (older checks carry no document id).
+      mathDone:
+        !!draft && !!math && (math.documentId != null ? math.documentId === draft.id : !!feedback && feedback.created_at >= draft.uploaded_at),
     };
   });
 
@@ -110,7 +117,7 @@ export default async function IaPage({
 
               <section>
                 <h2 className="text-lg font-medium">Students ({rows.length})</h2>
-                <IaRoster rows={rows} deadlineMap={deadlineMap} classId={selectedClass.id} />
+                <IaRoster key={rows.map((r) => r.topic).join("\u0000")} rows={rows} deadlineMap={deadlineMap} classId={selectedClass.id} />
               </section>
             </>
           )}

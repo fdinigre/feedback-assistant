@@ -22,7 +22,7 @@ export function MathCheckPanel({
     return (
       <div className="rounded-md border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
         The math check did not run: {error} The rest of the feedback below was still generated —
-        regenerate to try the math check again.
+        use &ldquo;Run math check only&rdquo; to try the math check again.
       </div>
     );
 

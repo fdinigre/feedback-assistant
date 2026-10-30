@@ -13,6 +13,7 @@ import {
   insertIaOutput,
 } from "@/lib/db/queries";
 import { iaNotesPromptBlock } from "@/lib/ia/criterion-notes";
+import { needsTopic, saveExtractedTopic, TOPIC_INSTRUCTION } from "@/lib/ia/topic";
 import { IA_CRITERIA } from "@/lib/types";
 import type { IaAuthenticity, IaCriterionMark, IaFinalMarks, IaOutputRow } from "@/lib/types";
 
@@ -55,7 +56,8 @@ function buildPrompt(
   rubric: string,
   checklist: string,
   calibration: string,
-  guideNotes: string
+  guideNotes: string,
+  needTopic: boolean
 ): string {
   return `You are marking the FINAL submission of an IB Diploma Mathematics: Applications and
 Interpretation SL Internal Assessment (Mathematical Exploration). Author pseudonym: ${pseudonym}.
@@ -93,7 +95,7 @@ Also write:
   otherwise "ok". In notes, describe what to look at and where, in neutral language ("the tone in
   Section 3 differs from the rest — worth confirming with {{NAME}}"). If level is "ok", notes may be [].
 
-Return ONLY strict JSON matching exactly this shape (all five criteria, in order):
+${needTopic ? TOPIC_INSTRUCTION : ""}Return ONLY strict JSON matching exactly this shape (all five criteria, in order):
 {
   "criteria": [
     { "criterion": "A", "proposed": <0-4>, "evidence": [{ "quote": "...", "location": "..." }], "justification": "..." },
@@ -174,12 +176,13 @@ export async function generateFinalMarks(explorationId: number): Promise<IaOutpu
   const calibration = loadCalibration();
   const guideNotes = iaNotesPromptBlock(getIaCriterionNotes());
 
-  const raw = await runClaudeJson<IaFinalMarks>({
+  const raw = await runClaudeJson<IaFinalMarks & { topic?: unknown }>({
     purpose: "ia-final-marks",
     forbiddenNames,
-    prompt: buildPrompt(student.pseudonym, final.text, rubric, checklist, calibration, guideNotes),
+    prompt: buildPrompt(student.pseudonym, final.text, rubric, checklist, calibration, guideNotes, needsTopic(exploration.topic)),
   });
 
+  saveExtractedTopic(explorationId, raw.topic, forbiddenNames);
   const scrubbed = scrubAndClamp(raw, forbiddenNames);
   return insertIaOutput({
     exploration_id: explorationId,

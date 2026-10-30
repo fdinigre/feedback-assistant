@@ -9,11 +9,13 @@ import {
   getIaCriterionNotes,
   getIaExploration,
   getLatestIaOutput,
+  updateIaOutputContent,
   getLatestIaDocument,
   getStudent,
   insertIaOutput,
 } from "@/lib/db/queries";
 import { iaNotesPromptBlock } from "@/lib/ia/criterion-notes";
+import { needsTopic, saveExtractedTopic, TOPIC_INSTRUCTION } from "@/lib/ia/topic";
 import { allRubricItems, parseRubricItems, rubricItemsPromptBlock } from "@/lib/ia/rubric-items";
 import { mathCheckPromptBlock, runMathCheck } from "@/lib/ia/math-check";
 import { IA_CRITERIA } from "@/lib/types";
@@ -60,7 +62,8 @@ function buildPrompt(
   calibration: string,
   guideNotes: string,
   checklistItems: string,
-  mathBlock: string
+  mathBlock: string,
+  needTopic: boolean
 ): string {
   return `You are giving IB Diploma Mathematics: Applications and Interpretation SL Internal Assessment
 (Mathematical Exploration) DRAFT feedback. Author pseudonym: ${pseudonym}. This is the ONLY formal
@@ -110,7 +113,7 @@ Also write:
   into Toddle, addressed to {{NAME}}. Name the 1-2 most important next steps in plain language. No
   criterion letters, no marks, no jargon.
 
-Return ONLY strict JSON matching exactly this shape (all five criteria, in order):
+${needTopic ? TOPIC_INSTRUCTION : ""}Return ONLY strict JSON matching exactly this shape (all five criteria, in order):
 {
   "criteria": [
     { "criterion": "A", "level": <0-4>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] },
@@ -232,23 +235,30 @@ export async function generateDraftFeedback(explorationId: number): Promise<IaOu
   const rubricItems = parseRubricItems(rubric);
   const knownIds = new Set(allRubricItems(rubricItems).keys());
 
+  const previous = getLatestIaOutput(explorationId, "draft_feedback")?.content as IaDraftFeedback | undefined;
+
   // The mathematics is checked first, on the page images, so criterion E can use it.
-  // If it fails, the rest of the feedback still goes ahead and the screen says so.
-  let mathCheck: IaMathCheck | undefined;
+  // A check already done on this same draft is reused (with the teacher's edits to
+  // it); "Run math check" redoes it on purpose. If it fails, the rest of the
+  // feedback still goes ahead and the screen says so.
+  let mathCheck: IaMathCheck | undefined = reusableMathCheck(previous, draft.id);
   let mathCheckError: string | undefined;
-  try {
-    mathCheck = await runMathCheck({ explorationId, doc: draft, pseudonym: student.pseudonym, forbiddenNames });
-  } catch (err) {
-    mathCheckError = (err as Error).message;
+  if (!mathCheck) {
+    try {
+      mathCheck = await runMathCheck({ explorationId, doc: draft, pseudonym: student.pseudonym, forbiddenNames });
+    } catch (err) {
+      mathCheckError = (err as Error).message;
+    }
   }
 
-  const raw = await runClaudeJson<IaDraftFeedback>({
+  const raw = await runClaudeJson<IaDraftFeedback & { topic?: unknown }>({
     purpose: "ia-draft-feedback",
     forbiddenNames,
-    prompt: buildPrompt(student.pseudonym, draft.text, rubric, checklist, calibration, guideNotes, rubricItemsPromptBlock(rubricItems), mathCheckPromptBlock(mathCheck)),
+    prompt: buildPrompt(student.pseudonym, draft.text, rubric, checklist, calibration, guideNotes, rubricItemsPromptBlock(rubricItems), mathCheckPromptBlock(mathCheck), needsTopic(exploration.topic)),
   });
 
-  const previous = getLatestIaOutput(explorationId, "draft_feedback")?.content as IaDraftFeedback | undefined;
+  saveExtractedTopic(explorationId, raw.topic, forbiddenNames);
+
   const scrubbed = carryTeacherInput(scrubDraftFeedback(raw, forbiddenNames, knownIds), previous);
   return insertIaOutput({
     exploration_id: explorationId,
@@ -258,6 +268,45 @@ export async function generateDraftFeedback(explorationId: number): Promise<IaOu
       ...(mathCheck ? { mathCheck } : {}),
       ...(mathCheckError ? { mathCheckError } : {}),
     },
+    status: "draft",
+  });
+}
+
+/** The previous math check, if it was run on this same uploaded draft. */
+export function reusableMathCheck(previous: IaDraftFeedback | undefined, draftId: number): IaMathCheck | undefined {
+  const m = previous?.mathCheck;
+  return m && m.documentId === draftId ? m : undefined;
+}
+
+/**
+ * Runs only the math check on the latest draft and stores it with the latest draft
+ * feedback (replacing any earlier check or error), or as a feedback row of its own
+ * when there is none yet — the criteria then come with "Generate draft feedback",
+ * which reuses this check. Throws when the check fails, so the screen can say so.
+ */
+export async function generateMathCheckOnly(explorationId: number): Promise<IaOutputRow> {
+  const exploration = getIaExploration(explorationId);
+  if (!exploration) throw new Error(`generateMathCheckOnly: exploration ${explorationId} not found`);
+  const student = getStudent(exploration.student_id);
+  if (!student) throw new Error(`generateMathCheckOnly: student not found`);
+  const draft = getLatestIaDocument(explorationId, "draft");
+  if (!draft || !draft.text) {
+    throw new MissingDraftError("No draft document uploaded yet — upload one before running the math check.");
+  }
+  const forbiddenNames = getForbiddenNames(student.class_id);
+  const mathCheck = await runMathCheck({ explorationId, doc: draft, pseudonym: student.pseudonym, forbiddenNames });
+
+  const latest = getLatestIaOutput(explorationId, "draft_feedback");
+  if (latest) {
+    const content = { ...(latest.content as IaDraftFeedback), mathCheck };
+    delete content.mathCheckError;
+    const updated = updateIaOutputContent(latest.id, content);
+    if (updated) return updated;
+  }
+  return insertIaOutput({
+    exploration_id: explorationId,
+    kind: "draft_feedback",
+    content: { criteria: [], summary: "", mathCheck } satisfies IaDraftFeedback,
     status: "draft",
   });
 }
