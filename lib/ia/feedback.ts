@@ -7,6 +7,7 @@ import { getForbiddenNames, scrubOutput } from "@/lib/pipeline/guards";
 import {
   getIaChecklist,
   getIaCriterionNotes,
+  getIaItemMeanings,
   getIaExploration,
   getLatestIaOutput,
   updateIaOutputContent,
@@ -92,8 +93,11 @@ For EACH criterion A-E, decide the level the draft CURRENTLY evidences and justi
 rubric, then say exactly how to reach the next band. Provide:
 - level: an integer 0..max — the level the draft currently earns on the evidence available
 - evidence: an array of { "quote": "<short verbatim quote from the draft>", "location": "<page or
-  section, e.g. 'p. 3' or 'Reflection'>" } — at least one item; each quote MUST appear in the draft
-  text above. This is the evidence that grounds the level you chose.
+  section, e.g. 'p. 3' or 'Reflection'>", "why": "<one sentence: what this quote shows for the
+  criterion, naming the rubric descriptor it meets or falls short of — e.g. 'States the aim and
+  rationale up front, so the reader knows where the exploration is going.' Never mention level
+  numbers, bands or marks: the student may read it>" } — at least one item; each quote MUST appear in
+  the draft text above. This is the evidence that grounds the level you chose.
 - strengths: what is already working for this criterion, citing the evidence above
 - gaps: what is missing to reach the NEXT band up, naming the SPECIFIC rubric descriptor for that
   higher level
@@ -104,8 +108,10 @@ rubric, then say exactly how to reach the next band. Provide:
   as a statement about the draft, negative ones included: "No aim or rationale." is evident when the
   draft has no aim. Leave out every item that is not true of the draft. For each item listed give
   { "id": "<its id>", "status": "evident" | "partly", "quote": "<short verbatim quote from the draft
-  showing it, or "" when the item is about something missing>", "location": "<page or section, or "">" }.
-  Every quote MUST appear in the draft text above.
+  showing it, or "" when the item is about something missing>", "location": "<page or section, or "">",
+  "why": "<one sentence: how this quote shows the item, or what is missing — specific to the draft,
+  never a level number>" }. Every quote MUST appear in the draft text above. Where the teacher has
+  written what an item means, judge it by that meaning, not by the item's wording alone.
 
 Also write:
 - summary: a short overall cover note for the teacher (2-4 sentences)
@@ -116,11 +122,11 @@ Also write:
 ${needTopic ? TOPIC_INSTRUCTION : ""}Return ONLY strict JSON matching exactly this shape (all five criteria, in order):
 {
   "criteria": [
-    { "criterion": "A", "level": <0-4>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] },
-    { "criterion": "B", "level": <0-4>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] },
-    { "criterion": "C", "level": <0-3>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] },
-    { "criterion": "D", "level": <0-3>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] },
-    { "criterion": "E", "level": <0-6>, "evidence": [{ "quote": "...", "location": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "..." }] }
+    { "criterion": "A", "level": <0-4>, "evidence": [{ "quote": "...", "location": "...", "why": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "...", "why": "..." }] },
+    { "criterion": "B", "level": <0-4>, "evidence": [{ "quote": "...", "location": "...", "why": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "...", "why": "..." }] },
+    { "criterion": "C", "level": <0-3>, "evidence": [{ "quote": "...", "location": "...", "why": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "...", "why": "..." }] },
+    { "criterion": "D", "level": <0-3>, "evidence": [{ "quote": "...", "location": "...", "why": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "...", "why": "..." }] },
+    { "criterion": "E", "level": <0-6>, "evidence": [{ "quote": "...", "location": "...", "why": "..." }], "strengths": ["..."], "gaps": ["..."], "suggestions": ["..."], "checklist": [{ "id": "...", "status": "evident", "quote": "...", "location": "...", "why": "..." }] }
   ],
   "summary": "<string>",
   "toddleComment": "<string>"
@@ -153,6 +159,7 @@ function scrubChecklist(
       status: m.status,
       quote: scrubOutput(m.quote ?? "", forbiddenNames).text,
       location: scrubOutput(m.location ?? "", forbiddenNames).text,
+      ...(m.why?.trim() ? { why: scrubOutput(m.why, forbiddenNames).text } : {}),
     });
   }
   return out;
@@ -199,6 +206,7 @@ function scrubDraftFeedback(
     evidence: (c.evidence ?? []).map((e) => ({
       quote: scrubOutput(e.quote ?? "", forbiddenNames).text,
       location: scrubOutput(e.location ?? "", forbiddenNames).text,
+      ...(e.why?.trim() ? { why: scrubOutput(e.why, forbiddenNames).text } : {}),
     })),
     strengths: (c.strengths ?? []).map((s) => scrubOutput(s, forbiddenNames).text),
     gaps: (c.gaps ?? []).map((s) => scrubOutput(s, forbiddenNames).text),
@@ -254,7 +262,7 @@ export async function generateDraftFeedback(explorationId: number): Promise<IaOu
   const raw = await runClaudeJson<IaDraftFeedback & { topic?: unknown }>({
     purpose: "ia-draft-feedback",
     forbiddenNames,
-    prompt: buildPrompt(student.pseudonym, draft.text, rubric, checklist, calibration, guideNotes, rubricItemsPromptBlock(rubricItems), mathCheckPromptBlock(mathCheck), needsTopic(exploration.topic)),
+    prompt: buildPrompt(student.pseudonym, draft.text, rubric, checklist, calibration, guideNotes, rubricItemsPromptBlock(rubricItems, getIaItemMeanings()), mathCheckPromptBlock(mathCheck && scrubMathCheck(mathCheck, forbiddenNames)), needsTopic(exploration.topic)),
   });
 
   saveExtractedTopic(explorationId, raw.topic, forbiddenNames);
@@ -267,6 +275,8 @@ export async function generateDraftFeedback(explorationId: number): Promise<IaOu
       ...scrubbed,
       ...(mathCheck ? { mathCheck } : {}),
       ...(mathCheckError ? { mathCheckError } : {}),
+      generatedAt: new Date().toISOString(),
+      mathCheckedAtGeneration: mathCheck ? (mathCheck.checkedAt ?? null) : null,
     },
     status: "draft",
   });
@@ -309,4 +319,21 @@ export async function generateMathCheckOnly(explorationId: number): Promise<IaOu
     content: { criteria: [], summary: "", mathCheck } satisfies IaDraftFeedback,
     status: "draft",
   });
+}
+
+/**
+ * A math check as it goes back into a prompt. A reused check was saved from the
+ * screen, where {{NAME}} had already been turned back into the student's real
+ * name; scrubbing turns it into {{NAME}} again, so the prompt's privacy guard
+ * passes instead of stopping the whole run.
+ */
+function scrubMathCheck(m: IaMathCheck, forbiddenNames: string[]): IaMathCheck {
+  const c = (t: string) => scrubOutput(t ?? "", forbiddenNames).text;
+  return {
+    ...m,
+    checkedSummary: c(m.checkedSummary),
+    uncheckable: m.uncheckable.map(c),
+    checked: m.checked?.map((x) => ({ location: c(x.location), what: c(x.what) })),
+    findings: m.findings.map((f) => ({ ...f, quote: c(f.quote), location: c(f.location), teacherNote: c(f.teacherNote), studentNote: c(f.studentNote) })),
+  };
 }

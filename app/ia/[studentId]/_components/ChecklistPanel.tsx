@@ -3,6 +3,9 @@
 import { useState } from "react";
 import type { RubricCriterion } from "@/lib/ia/rubric-items";
 import type { IaChecklistMark, IaChecklistStatus } from "@/lib/types";
+import { checklistId, noteDomId } from "@/lib/ia/feedback-targets";
+import { LocateButton } from "./DraftViewer";
+import { saveIaItemMeanings } from "@/lib/ia/item-meanings-actions";
 
 const STATUS_LABEL: Record<IaChecklistStatus, string> = {
   evident: "Evident",
@@ -33,13 +36,36 @@ export function ChecklistPanel({
   marks,
   level,
   onChange,
+  meanings: initialMeanings = {},
 }: {
   rubric: RubricCriterion | undefined;
   marks: IaChecklistMark[];
   level: number;
   onChange: (marks: IaChecklistMark[]) => void;
+  /** What items mean to the teacher, by id; edited here, shared with every student. */
+  meanings?: Record<string, string>;
 }) {
   const [showAll, setShowAll] = useState(false);
+  const [meanings, setMeanings] = useState(initialMeanings);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draftMeaning, setDraftMeaning] = useState("");
+  const [savingMeaning, setSavingMeaning] = useState(false);
+
+  async function saveMeaning(id: string) {
+    setSavingMeaning(true);
+    const text = draftMeaning.trim();
+    const res = await saveIaItemMeanings({ [id]: text });
+    setSavingMeaning(false);
+    if (!res.error) {
+      setMeanings((prev) => {
+        const next = { ...prev };
+        if (text) next[id] = text;
+        else delete next[id];
+        return next;
+      });
+      setEditing(null);
+    }
+  }
   if (!rubric) return null;
   const byId = new Map(marks.map((m) => [m.id, m]));
   const items = rubric.bands.flatMap((b) => b.items);
@@ -64,7 +90,7 @@ export function ChecklistPanel({
   }
 
   return (
-    <details className="mt-3 rounded border border-slate-200 bg-slate-50 p-2">
+    <details data-checklist="" className="mt-3 rounded border border-slate-200 bg-slate-50 p-2">
       <summary className="cursor-pointer text-sm font-medium text-slate-700">
         Checklist — {counts.evident} evident · {counts.partly} partly
         {counts.changed > 0 && <span className="text-amber-700"> · {counts.changed} changed by you</span>}
@@ -99,11 +125,26 @@ export function ChecklistPanel({
                   const m = byId.get(item.id);
                   const s = effectiveStatus(m);
                   return (
-                    <li key={item.id} className={`rounded border p-2 text-sm ${STATUS_STYLE[s]}`}>
+                    <li key={item.id} id={noteDomId(checklistId(item.id))} className={`rounded border p-2 text-sm transition-shadow ${STATUS_STYLE[s]}`}>
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <span className="min-w-0 flex-1">
                           <span className="mr-1 text-xs text-slate-400">{item.id}</span>
                           {item.text}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditing(editing === item.id ? null : item.id);
+                              setDraftMeaning(meanings[item.id] ?? "");
+                            }}
+                            title="What this item means to you — applies to every student"
+                            aria-label={`Edit what ${item.id} means`}
+                            className="ml-1 text-xs text-slate-400 hover:text-slate-700"
+                          >
+                            ✎
+                          </button>
+                          {meanings[item.id] && editing !== item.id && (
+                            <span className="block text-xs italic text-slate-500">Means: {meanings[item.id]}</span>
+                          )}
                         </span>
                         <span className="flex items-center gap-1">
                           {m?.teacherStatus ? (
@@ -127,9 +168,43 @@ export function ChecklistPanel({
                           </select>
                         </span>
                       </div>
+                      {editing === item.id && (
+                        <div className="mt-1 rounded border border-blue-200 bg-white p-2">
+                          <label className="block text-xs font-medium text-slate-600" htmlFor={`meaning-${item.id}`}>
+                            What &ldquo;{item.text}&rdquo; means to you — used by the AI for every student from the next feedback
+                          </label>
+                          <textarea
+                            id={`meaning-${item.id}`}
+                            value={draftMeaning}
+                            onChange={(e) => setDraftMeaning(e.target.value)}
+                            rows={2}
+                            placeholder="e.g. The student makes a decision of their own about the method or data, and says why — not just following a textbook example."
+                            className="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-xs"
+                          />
+                          <div className="mt-1 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void saveMeaning(item.id)}
+                              disabled={savingMeaning}
+                              className="rounded bg-slate-900 px-2 py-0.5 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                            >
+                              {savingMeaning ? "Saving…" : "Save meaning"}
+                            </button>
+                            <button type="button" onClick={() => setEditing(null)} className="text-xs text-slate-500 underline">
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                       {m?.quote && s !== "not_evident" && (
                         <p className="mt-1 text-xs text-slate-600">
                           &ldquo;{m.quote}&rdquo;{m.location && <span className="text-slate-400"> — {m.location}</span>}
+                          <LocateButton id={checklistId(item.id)} />
+                        </p>
+                      )}
+                      {m?.why && s !== "not_evident" && (
+                        <p className="text-xs text-slate-600">
+                          <span className="font-medium">Why:</span> {m.why}
                         </p>
                       )}
                       <input

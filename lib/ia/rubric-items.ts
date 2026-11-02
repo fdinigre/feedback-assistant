@@ -67,15 +67,24 @@ export function allRubricItems(rubric: RubricCriterion[]): Map<string, RubricIte
   return m;
 }
 
-/** The checklist as the prompt lists it: one line per item, grouped by criterion and band. */
-export function rubricItemsPromptBlock(rubric: RubricCriterion[]): string {
+/**
+ * The checklist as the prompt lists it: one line per item, grouped by criterion and
+ * band, with the teacher's own meaning of an item under it where there is one.
+ */
+export function rubricItemsPromptBlock(rubric: RubricCriterion[], meanings: Record<string, string> = {}): string {
   return rubric
     .map(
       (c) =>
         `${c.criterion} (${c.title}):\n` +
         c.bands
           .filter((b) => b.items.length > 0)
-          .map((b) => `  Level ${b.level}:\n` + b.items.map((i) => `    [${i.id}] ${i.text}`).join("\n"))
+          .map(
+            (b) =>
+              `  Level ${b.level}:\n` +
+              b.items
+                .map((i) => `    [${i.id}] ${i.text}${meanings[i.id]?.trim() ? `\n        Teacher's meaning: ${meanings[i.id].trim()}` : ""}`)
+                .join("\n")
+          )
           .join("\n")
     )
     .join("\n");

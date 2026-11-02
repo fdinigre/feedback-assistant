@@ -14,7 +14,10 @@ import { DeadlineEditor } from "./_components/DeadlineEditor";
 import { IaRoster, type RosterRow } from "./_components/IaRoster";
 import { IaBatchUpload, type BatchStudent } from "./_components/IaBatchUpload";
 import { IaClassFeedback, type ClassFeedbackRow } from "./_components/IaClassFeedback";
-import type { IaDraftFeedback } from "@/lib/types";
+import { IA_CRITERIA, type IaDraftFeedback } from "@/lib/types";
+
+const IA_MAX: Record<string, number> = Object.fromEntries(IA_CRITERIA.map((c) => [c.key, c.max]));
+import { feedbackMathState } from "@/lib/ia/feedback-state";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +39,18 @@ export default async function IaPage({
     const exploration = getIaExplorationByStudent(student.id);
     const progress = exploration ? listIaProgress(exploration.id) : [];
     const doneMap = Object.fromEntries(progress.map((p) => [p.milestone, p.completed_at]));
-    return { student, doneMap, topic: exploration?.topic ?? "" };
+    // The latest draft feedback's levels, and whether it is still current.
+    const fbRow = exploration ? getLatestIaOutput(exploration.id, "draft_feedback") : undefined;
+    const fb = fbRow?.content as IaDraftFeedback | undefined;
+    const draft = exploration ? getLatestIaDocument(exploration.id, "draft") : undefined;
+    const draftLevels =
+      fb && (fb.criteria?.length ?? 0) > 0
+        ? fb.criteria.map((c) => ({ criterion: c.criterion, level: c.level ?? 0, max: IA_MAX[c.criterion] ?? 0 }))
+        : null;
+    const levelsStale =
+      !!draftLevels &&
+      ((!!draft && !!fbRow && fbRow.created_at < draft.uploaded_at) || feedbackMathState(fb, fbRow?.created_at) !== "ok");
+    return { student, doneMap, topic: exploration?.topic ?? "", draftLevels, levelsStale };
   });
 
   const batchStudents: BatchStudent[] = students.map((student) => {
@@ -63,8 +77,14 @@ export default async function IaPage({
       // A row holding only a math check is not feedback yet.
       feedbackAt: feedback && (content?.criteria?.length ?? 0) > 0 ? feedback.created_at : null,
       // Whether the latest draft has a math check (older checks carry no document id).
+      mathState: feedback ? feedbackMathState(content, feedback.created_at) : "ok",
+      // A text-only check of a PDF (from before long drafts were checked page by page)
+      // counts as missing, so the class button redoes it from the pages.
       mathDone:
-        !!draft && !!math && (math.documentId != null ? math.documentId === draft.id : !!feedback && feedback.created_at >= draft.uploaded_at),
+        !!draft &&
+        !!math &&
+        (math.documentId != null ? math.documentId === draft.id : !!feedback && feedback.created_at >= draft.uploaded_at) &&
+        (math.usedPageImages || !/\.pdf$/i.test(draft.original_name ?? "")),
     };
   });
 
@@ -107,17 +127,17 @@ export default async function IaPage({
           {selectedClass && (
             <>
               <section>
-                <h2 className="text-lg font-medium">Class deadlines</h2>
-                <DeadlineEditor classId={selectedClass.id} deadlineMap={deadlineMap} />
+                <h2 className="text-lg font-medium">Students ({rows.length})</h2>
+                <IaRoster key={rows.map((r) => r.topic).join("\u0000")} rows={rows} deadlineMap={deadlineMap} classId={selectedClass.id} />
               </section>
 
               <IaBatchUpload key={selectedClass.id} students={batchStudents} />
 
-              <IaClassFeedback key={`fb-${selectedClass.id}`} rows={feedbackRows} />
+              <IaClassFeedback key={`fb-${selectedClass.id}`} rows={feedbackRows} classId={selectedClass.id} />
 
               <section>
-                <h2 className="text-lg font-medium">Students ({rows.length})</h2>
-                <IaRoster key={rows.map((r) => r.topic).join("\u0000")} rows={rows} deadlineMap={deadlineMap} classId={selectedClass.id} />
+                <h2 className="text-lg font-medium">Class deadlines</h2>
+                <DeadlineEditor classId={selectedClass.id} deadlineMap={deadlineMap} />
               </section>
             </>
           )}

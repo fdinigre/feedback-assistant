@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   IA_CRITERIA,
   type IaCriterionMark,
@@ -15,6 +15,10 @@ import { injectNameDraftFeedback, injectNameFinalMarks } from "@/lib/ia/render";
 import type { RubricCriterion } from "@/lib/ia/rubric-items";
 import { ChecklistPanel } from "./ChecklistPanel";
 import { MathCheckPanel } from "./MathCheckPanel";
+import { DraftViewer, LocateButton, LocateContext, scrollToHighlight, scrollToNote } from "./DraftViewer";
+import { evidenceId, feedbackTargets, noteDomId } from "@/lib/ia/feedback-targets";
+import { feedbackMathState, MATH_STATE_TEXT } from "@/lib/ia/feedback-state";
+import type { LocatedTarget } from "@/lib/ia/draft-view";
 
 const MAX_BY_CRITERION: Record<string, number> = Object.fromEntries(
   IA_CRITERIA.map((c) => [c.key, c.max])
@@ -83,6 +87,8 @@ export function UploadAndOutputsClient({
   documents,
   outputs,
   rubric,
+  draftView,
+  itemMeanings,
 }: {
   explorationId: number;
   studentName: string;
@@ -91,6 +97,10 @@ export function UploadAndOutputsClient({
   outputs: IaOutputRow[];
   /** The annotated rubric split into checklist items (lib/ia/rubric-items.ts). */
   rubric: RubricCriterion[];
+  /** The latest draft as page images with each feedback quote located on them; null for a Word draft. */
+  draftView: { documentId: number; pageCount: number; located: Record<string, LocatedTarget> } | null;
+  /** What checklist items mean to the teacher, by id. */
+  itemMeanings: Record<string, string>;
 }) {
   const router = useRouter();
   const draftDoc = latestByKind(documents, "draft");
@@ -148,6 +158,44 @@ export function UploadAndOutputsClient({
   }
 
   const [runningMath, setRunningMath] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // What the server holds, as last saved or generated; anything different on screen is unsaved.
+  const lastSaved = useRef<string>(
+    feedback && draftFeedbackRow ? JSON.stringify({ outputId: draftFeedbackRow.id, content: feedback }) : ""
+  );
+  const currentBody = feedback && feedbackOutputId != null ? JSON.stringify({ outputId: feedbackOutputId, content: feedback }) : "";
+  const unsaved = !!currentBody && currentBody !== lastSaved.current;
+
+  // Autosave: a moment after the last change.
+  useEffect(() => {
+    if (!unsaved || savingFeedback) return;
+    const t = window.setTimeout(() => void saveFeedback(), 1200);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentBody, savingFeedback]);
+
+  // Leaving with unsaved changes: the browser asks first; moving to another
+  // student inside the app sends the save on its way as the page goes.
+  const pending = useRef({ unsaved, currentBody });
+  pending.current = { unsaved, currentBody };
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (pending.current.unsaved) e.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      if (pending.current.unsaved && pending.current.currentBody) {
+        navigator.sendBeacon(
+          "/api/ia/draft-feedback/save",
+          new Blob([pending.current.currentBody], { type: "application/json" })
+        );
+      }
+    };
+  }, []);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const mathState = feedbackMathState(feedback, draftFeedbackRow?.created_at);
+  const viewLocated = draftView && draftDoc && draftView.documentId === draftDoc.id ? draftView.located : {};
   const hasCriteria = !!feedback && feedback.criteria.length > 0;
   const mathIsForThisDraft = !!feedback?.mathCheck && !!draftDoc && feedback.mathCheck.documentId === draftDoc.id;
 
@@ -167,9 +215,12 @@ export function UploadAndOutputsClient({
         return;
       }
       const output = json.output as IaOutputRow;
-      setFeedback(injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym));
+      const fresh = injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym);
+      lastSaved.current = JSON.stringify({ outputId: output.id, content: fresh });
+      setFeedback(fresh);
       setFeedbackOutputId(output.id);
       setFeedbackStatus(output.status);
+      router.refresh(); // re-locates the new findings on the draft
     } catch {
       setFeedbackError("Network error — could not reach the server.");
     } finally {
@@ -192,7 +243,9 @@ export function UploadAndOutputsClient({
         return;
       }
       const output = json.output as IaOutputRow;
-      setFeedback(injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym));
+      const fresh = injectNameDraftFeedback(output.content as IaDraftFeedback, studentName, pseudonym);
+      lastSaved.current = JSON.stringify({ outputId: output.id, content: fresh });
+      setFeedback(fresh);
       setFeedbackOutputId(output.id);
       setFeedbackStatus(output.status);
       router.refresh(); // a topic read from the paper shows up in the Topic box
@@ -203,17 +256,30 @@ export function UploadAndOutputsClient({
     }
   }
 
-  async function saveFeedback() {
-    if (!feedback || feedbackOutputId == null) return;
+  // Saves what is on screen. Autosave calls it a moment after each change; Approve
+  // and the downloads call it first. The screen is never replaced by the reply, so
+  // typing during a save is not lost.
+  async function saveFeedback(): Promise<boolean> {
+    if (!feedback || feedbackOutputId == null) return true;
+    const body = JSON.stringify({ outputId: feedbackOutputId, content: feedback });
+    if (body === lastSaved.current) return true;
     setSavingFeedback(true);
     try {
       const res = await fetch("/api/ia/draft-feedback/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outputId: feedbackOutputId, content: feedback }),
+        body,
       });
-      const json = await res.json().catch(() => null);
-      if (res.ok) setFeedback(json.output.content as IaDraftFeedback);
+      if (res.ok) {
+        lastSaved.current = body;
+        setSaveError(null);
+        return true;
+      }
+      setSaveError(`Not saved (error ${res.status}) — will try again on your next change.`);
+      return false;
+    } catch {
+      setSaveError("Not saved — could not reach the app. Will try again on your next change.");
+      return false;
     } finally {
       setSavingFeedback(false);
     }
@@ -232,6 +298,7 @@ export function UploadAndOutputsClient({
 
   async function approveFeedback() {
     if (feedbackOutputId == null) return;
+    if (!(await saveFeedback())) return;
     setApprovingFeedback(true);
     try {
       const res = await fetch("/api/ia/draft-feedback/approve", {
@@ -367,22 +434,85 @@ export function UploadAndOutputsClient({
             {feedbackError && <p className="mt-2 text-sm text-rose-700">{feedbackError}</p>}
 
             {feedback && (
-              <div className="mt-4 space-y-4">
+              <LocateContext.Provider
+                value={{
+                  located: viewLocated,
+                  locate: (id) => {
+                    setActiveId(id);
+                    scrollToHighlight(id);
+                  },
+                }}
+              >
+              <div
+                className={
+                  draftView
+                    ? "mt-4 grid grid-cols-1 gap-6 lg:h-[calc(100vh-6rem)] lg:min-h-[34rem] lg:grid-cols-2"
+                    : "mt-4"
+                }
+              >
+                {draftView && (
+                  <div className="flex min-h-0 flex-col">
+                    <DraftViewer
+                      documentId={draftView.documentId}
+                      pageCount={draftView.pageCount}
+                      targets={feedbackTargets(feedback)}
+                      located={viewLocated}
+                      activeId={activeId}
+                      onSelect={(id) => {
+                        setActiveId(id);
+                        scrollToNote(id);
+                      }}
+                    />
+                  </div>
+                )}
+              <div className={(draftView ? "min-h-0 min-w-0 overflow-auto pr-1 " : "") + "space-y-4"}>
+                {!draftView && draftDoc && /\.docx$/i.test(draftDoc.original_name ?? "") && (
+                  <p className="rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                    This draft is a Word file, so the paper can&rsquo;t be shown beside the feedback. To see
+                    it with highlights, save it as a PDF and use &ldquo;Re-upload draft&rdquo; — this
+                    feedback stays and is placed on the PDF&rsquo;s pages.
+                  </p>
+                )}
                 <p className="text-xs text-slate-500">
                   Colour shows how close each criterion is to its maximum on the current draft.
                   Levels and comments are editable — adjust, then Save.
+                  {(feedback.mathCheck || feedback.mathCheckError) && (
+                    <>
+                      {" "}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          document.getElementById("math-check-section")?.scrollIntoView({ block: "start", behavior: "smooth" })
+                        }
+                        className="underline hover:text-slate-800"
+                      >
+                        Math check ↓
+                      </button>
+                    </>
+                  )}
                 </p>
-                <MathCheckPanel
-                  check={feedback.mathCheck}
-                  error={feedback.mathCheckError}
-                  onChange={(mathCheck) => setFeedback((prev) => (prev ? { ...prev, mathCheck } : prev))}
-                />
+                {mathState !== "ok" && (
+                  <div role="status" className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                    <p>{MATH_STATE_TEXT[mathState]}</p>
+                    <button
+                      type="button"
+                      onClick={mathState === "no-math" ? runMathCheckOnly : generateFeedback}
+                      disabled={generatingFeedback || runningMath}
+                      className="mt-2 rounded-md bg-amber-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-800 disabled:opacity-50"
+                    >
+                      {mathState === "no-math"
+                        ? runningMath ? "Checking the math…" : "Run math check"
+                        : generatingFeedback ? "Regenerating…" : "Regenerate feedback"}
+                    </button>
+                  </div>
+                )}
                 {feedback.criteria.map((c, idx) => (
                   <CriterionFeedback
                     key={c.criterion}
                     mark={c}
                     max={MAX_BY_CRITERION[c.criterion] ?? 0}
                     rubric={rubric.find((r) => r.criterion === c.criterion)}
+                    meanings={itemMeanings}
                     onChange={(next) =>
                       setFeedback((prev) => {
                         if (!prev) return prev;
@@ -392,6 +522,24 @@ export function UploadAndOutputsClient({
                     }
                   />
                 ))}
+              </div>
+              </div>
+
+              {(feedback.mathCheck || feedback.mathCheckError) && (
+                <section
+                  id="math-check-section"
+                  aria-label="Math check"
+                  className="mt-8 scroll-mt-4 border-t border-slate-200 pt-6"
+                >
+                  <MathCheckPanel
+                    check={feedback.mathCheck}
+                    error={feedback.mathCheckError}
+                    onChange={(mathCheck) => setFeedback((prev) => (prev ? { ...prev, mathCheck } : prev))}
+                  />
+                </section>
+              )}
+
+              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6">
                 <div>
                   <label className="block text-sm font-medium text-slate-700">Summary (for you)</label>
                   <textarea
@@ -407,46 +555,55 @@ export function UploadAndOutputsClient({
                   value={feedback.toddleComment ?? ""}
                   onChange={(v) => setFeedback((prev) => (prev ? { ...prev, toddleComment: v } : prev))}
                 />
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={saveFeedback}
-                    disabled={savingFeedback}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    {savingFeedback ? "Saving…" : "Save changes"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={approveFeedback}
-                    disabled={approvingFeedback || feedbackStatus === "approved"}
-                    className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                  >
-                    {feedbackStatus === "approved"
-                      ? "Approved ✓"
-                      : approvingFeedback
-                        ? "Approving…"
-                        : "Approve feedback"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadPdf("teacher")}
-                    disabled={savingFeedback}
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    Download teacher PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadPdf("student")}
-                    disabled={savingFeedback}
-                    title="Highlights and comments only: no levels, no corrections"
-                    className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
-                  >
-                    Download student PDF
-                  </button>
-                </div>
               </div>
+              </LocateContext.Provider>
+            )}
+            {feedback && (
+                <div className="sticky bottom-0 z-20 -mx-4 mt-6 flex flex-wrap items-center gap-3 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-2px_8px_rgba(15,23,42,0.06)] backdrop-blur">
+                  {hasCriteria && <LevelStrip criteria={feedback.criteria} />}
+                  <span className="text-xs" role="status" aria-live="polite">
+                    {saveError ? (
+                      <span className="text-rose-700">{saveError}</span>
+                    ) : savingFeedback ? (
+                      <span className="text-slate-500">Saving…</span>
+                    ) : unsaved ? (
+                      <span className="text-amber-700">Unsaved changes</span>
+                    ) : (
+                      <span className="text-emerald-700">✓ Saved</span>
+                    )}
+                  </span>
+                  <span className="ml-auto flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={approveFeedback}
+                      disabled={approvingFeedback || feedbackStatus === "approved" || !hasCriteria}
+                      className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {feedbackStatus === "approved"
+                        ? "Approved ✓"
+                        : approvingFeedback
+                          ? "Approving…"
+                          : "Approve feedback"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadPdf("teacher")}
+                      disabled={savingFeedback}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      Teacher PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadPdf("student")}
+                      disabled={savingFeedback}
+                      title="Highlights and comments only: no levels, no corrections"
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+                    >
+                      Student PDF
+                    </button>
+                  </span>
+                </div>
             )}
           </div>
         )}
@@ -612,22 +769,49 @@ function AuthenticityPanel({ authenticity }: { authenticity: { level: "ok" | "lo
   );
 }
 
+/** The levels at a glance, coloured by band; each chip shows its criterion's card. */
+function LevelStrip({ criteria }: { criteria: IaDraftCriterionFeedback[] }) {
+  const total = criteria.reduce((sum, c) => sum + (c.level ?? 0), 0);
+  return (
+    <span className="flex flex-wrap items-center gap-1.5">
+      {criteria.map((c) => {
+        const max = MAX_BY_CRITERION[c.criterion] ?? 0;
+        const b = band(c.level ?? 0, max);
+        return (
+          <button
+            key={c.criterion}
+            type="button"
+            onClick={() => document.getElementById(`crit-card-${c.criterion}`)?.scrollIntoView({ block: "start", behavior: "smooth" })}
+            title={NAME_BY_CRITERION[c.criterion]}
+            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${b.badge}`}
+          >
+            {c.criterion} {c.level}/{max}
+          </button>
+        );
+      })}
+      <span className="ml-1 text-sm font-semibold text-slate-700 tabular-nums">{total}/20</span>
+    </span>
+  );
+}
+
 function CriterionFeedback({
   mark,
   max,
   rubric,
+  meanings,
   onChange,
 }: {
   mark: IaDraftCriterionFeedback;
   max: number;
   rubric: RubricCriterion | undefined;
+  meanings: Record<string, string>;
   onChange: (next: IaDraftCriterionFeedback) => void;
 }) {
   const level = mark.level ?? 0;
   const b = band(level, max);
   const evidence = mark.evidence ?? [];
   return (
-    <div className={`rounded-md border border-l-4 border-slate-200 ${b.border} p-3`}>
+    <div id={`crit-card-${mark.criterion}`} className={`rounded-md border border-l-4 border-slate-200 ${b.border} scroll-mt-2 p-3`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-600">
           Criterion {mark.criterion} · {NAME_BY_CRITERION[mark.criterion]}
@@ -655,9 +839,11 @@ function CriterionFeedback({
           <p className="text-xs font-medium text-slate-500">Evidence in the draft</p>
           <ul className="mt-1 space-y-1">
             {evidence.map((e, i) => (
-              <li key={i} className="text-slate-700">
+              <li key={i} id={noteDomId(evidenceId(mark.criterion, i))} className="rounded text-slate-700 transition-shadow">
                 <span className="font-medium">&ldquo;{e.quote}&rdquo;</span>{" "}
                 <span className="text-xs text-slate-400">— {e.location}</span>
+                <LocateButton id={evidenceId(mark.criterion, i)} />
+                {e.why && <span className="block text-xs text-slate-600">{e.why}</span>}
               </li>
             ))}
           </ul>
@@ -685,6 +871,7 @@ function CriterionFeedback({
         rubric={rubric}
         marks={mark.checklist ?? []}
         level={level}
+        meanings={meanings}
         onChange={(checklist) => onChange({ ...mark, checklist })}
       />
     </div>

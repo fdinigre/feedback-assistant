@@ -41,6 +41,7 @@ export function injectNameDraftFeedback(
       evidence: (c.evidence ?? []).map((e) => ({
         quote: injectName(e.quote, studentName, pseudonym),
         location: injectName(e.location, studentName, pseudonym),
+        ...(e.why ? { why: injectName(e.why, studentName, pseudonym) } : {}),
       })),
       strengths: c.strengths.map((s) => injectName(s, studentName, pseudonym)),
       gaps: c.gaps.map((s) => injectName(s, studentName, pseudonym)),
@@ -50,6 +51,7 @@ export function injectNameDraftFeedback(
         quote: m.quote ? injectName(m.quote, studentName, pseudonym) : m.quote,
         location: m.location ? injectName(m.location, studentName, pseudonym) : m.location,
         comment: m.comment ? injectName(m.comment, studentName, pseudonym) : m.comment,
+        why: m.why ? injectName(m.why, studentName, pseudonym) : m.why,
       })),
       ...(c.teacherComment !== undefined
         ? { teacherComment: injectName(c.teacherComment, studentName, pseudonym) }

@@ -2276,6 +2276,29 @@ export function setIaChecklist(text: string): void {
   setAppSetting(IA_CHECKLIST_KEY, text);
 }
 
+/** What each rubric checklist item means to the teacher, by item id ("C2.4"). */
+export const IA_ITEM_MEANINGS_KEY = "ia_item_meanings";
+export function getIaItemMeanings(): Record<string, string> {
+  try {
+    const parsed = JSON.parse(getAppSetting(IA_ITEM_MEANINGS_KEY) ?? "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+/** Replaces the meanings given (blank removes one); the others are kept. */
+export function setIaItemMeanings(changes: Record<string, string>): Record<string, string> {
+  const all = getIaItemMeanings();
+  for (const [id, text] of Object.entries(changes)) {
+    if (!/^[A-E]\d\.\d+$/.test(id)) continue;
+    const t = String(text ?? "").trim();
+    if (t) all[id] = t;
+    else delete all[id];
+  }
+  setAppSetting(IA_ITEM_MEANINGS_KEY, JSON.stringify(all));
+  return all;
+}
+
 /** The IB-guide notes per Exploration criterion: the teacher's edits over the built-in defaults. */
 export const IA_CRITERION_NOTES_KEY = "ia_criterion_notes";
 export function getIaCriterionNotes(): IaCriterionNotes {

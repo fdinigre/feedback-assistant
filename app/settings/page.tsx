@@ -2,6 +2,7 @@ import {
   getAppSetting,
   getIaChecklist,
   getIaCriterionNotes,
+  getIaItemMeanings,
   listAiRequests,
   listAllMarkingInstructions,
   listAssessments,
@@ -11,6 +12,10 @@ import { StyleExamplesSection } from "./_components/StyleExamplesSection";
 import { MarkingInstructionsSection } from "./_components/MarkingInstructionsSection";
 import { IaChecklistSection } from "./_components/IaChecklistSection";
 import { IaCriterionNotesSection } from "./_components/IaCriterionNotesSection";
+import { IaItemMeaningsSection } from "./_components/IaItemMeaningsSection";
+import { parseRubricItems } from "@/lib/ia/rubric-items";
+import fs from "node:fs";
+import path from "node:path";
 import { AiRequestLog } from "./_components/AiRequestLog";
 import { aiProvider } from "@/lib/ai/provider";
 import { EffortSection } from "./_components/EffortSection";
@@ -28,6 +33,12 @@ export default function SettingsPage() {
   const assessmentTitles = Object.fromEntries(listAssessments().map((a) => [a.id, a.title]));
   const iaChecklist = getIaChecklist();
   const iaCriterionNotes = getIaCriterionNotes();
+  let rubricText = "";
+  try {
+    rubricText = fs.readFileSync(path.join(process.cwd(), "specs", "reference", "exploration-rubric-sl-v1.4.txt"), "utf-8");
+  } catch {
+    // no rubric file: the meanings section doesn't show
+  }
   const effort = {
     studentWork: parseEffort(getAppSetting(EFFORT_SETTING_KEY.studentWork)) ?? EFFORT_DEFAULTS.studentWork,
     setup: parseEffort(getAppSetting(EFFORT_SETTING_KEY.setup)) ?? EFFORT_DEFAULTS.setup,
@@ -47,6 +58,8 @@ export default function SettingsPage() {
       <MarkingInstructionsSection rows={markingInstructions} assessmentTitles={assessmentTitles} />
 
       <IaCriterionNotesSection notes={iaCriterionNotes} />
+
+      <IaItemMeaningsSection rubric={parseRubricItems(rubricText)} meanings={getIaItemMeanings()} />
 
       <IaChecklistSection checklist={iaChecklist} />
 

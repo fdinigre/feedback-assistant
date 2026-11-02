@@ -10,8 +10,11 @@ import { redactNamesInPdf } from "@/lib/ia/pdf-text";
 import { iaPagesDir } from "@/lib/ia/paths";
 import type { IaDocumentRow, IaMathCheck, IaMathFinding } from "@/lib/types";
 
-/** Beyond this the pages are not sent as images (the IB asks for 12-20 pages). */
-const MAX_PAGES = 40;
+/**
+ * Beyond this the pages are not sent as images. Length is otherwise no problem — the
+ * check goes a few pages at a time — so this only guards against a wrong file.
+ */
+const MAX_PAGES = 80;
 /** Pages checked per AI call. A whole 20-page draft in one call can run past the 10-minute limit. */
 const PAGES_PER_CHUNK = 6;
 /** Chunks of one draft checked at the same time. */
@@ -19,7 +22,9 @@ const CHUNKS_AT_ONCE = 2;
 
 const KINDS = ["calculation", "method", "notation", "reasoning", "accuracy", "other"] as const;
 
-type Prepared = { images: string[]; pageTexts: string[] };
+/** Why only the text could be checked. */
+export type TextOnlyReason = "word" | "scan" | "too-long" | "no-file";
+type Prepared = { images: string[]; pageTexts: string[]; textOnlyReason?: TextOnlyReason };
 
 function pageTextsOf(doc: mupdf.Document): string[] {
   const out: string[] = [];
@@ -43,9 +48,10 @@ export async function preparePages(
   doc: IaDocumentRow,
   forbiddenNames: string[]
 ): Promise<Prepared> {
-  const none: Prepared = { images: [], pageTexts: [] };
+  const none = (textOnlyReason: TextOnlyReason): Prepared => ({ images: [], pageTexts: [], textOnlyReason });
   const filePath = doc.file_path;
-  if (!filePath || path.extname(filePath).toLowerCase() !== ".pdf" || !fs.existsSync(filePath)) return none;
+  if (filePath && path.extname(filePath).toLowerCase() === ".docx") return none("word");
+  if (!filePath || path.extname(filePath).toLowerCase() !== ".pdf" || !fs.existsSync(filePath)) return none("no-file");
   const dir = iaPagesDir(explorationId, doc.id);
   const redactedPath = path.join(dir, "redacted.pdf");
   const byNumber = (a: string, b: string) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]);
@@ -57,9 +63,9 @@ export async function preparePages(
   } else {
     const { bytes } = redactNamesInPdf(fs.readFileSync(filePath), forbiddenNames);
     redacted = mupdf.Document.openDocument(bytes, "application/pdf");
-    if (redacted.countPages() > MAX_PAGES) return none;
+    if (redacted.countPages() > MAX_PAGES) return none("too-long");
     const texts = pageTextsOf(redacted);
-    if (!texts.join("").trim()) return none; // a scan with no text layer: nothing could be redacted, so no images
+    if (!texts.join("").trim()) return none("scan"); // no text layer: nothing could be redacted, so no images
     if (scrubOutput(texts.join("\n"), forbiddenNames).warnings.length > 0) {
       throw new Error("A name was still found after redacting the draft — page images were not sent.");
     }
@@ -113,7 +119,10 @@ For each problem return:
   or how to fix it.
 
 Also return:
-- checkedSummary: 1-2 sentences for the teacher on what you checked and found correct
+- checkedSummary: ONE short sentence for the teacher on how the checked pages went overall
+- checked: what you verified and found CORRECT, one item per check, so the teacher can follow it:
+  { "location": "p. 7", "what": "Figure 1: payment for n = 28 to 48 recomputed — all correct" }.
+  Keep each "what" under 20 words; group a table or figure into one item.
 - uncheckable: what you could not verify, and why (e.g. "the raw data for Table 3 is not given")
 
 DRAFT TEXT${pages ? "" : " (pseudonymized)"}:
@@ -121,11 +130,13 @@ ${text}
 
 Return ONLY strict JSON:
 { "findings": [{ "quote": "...", "location": "...", "kind": "calculation", "severity": "major",
-  "teacherNote": "...", "studentNote": "..." }], "checkedSummary": "...", "uncheckable": ["..."] }
+  "teacherNote": "...", "studentNote": "..." }], "checkedSummary": "...",
+  "checked": [{ "location": "...", "what": "..." }], "uncheckable": ["..."] }
 No prose, no code fences.`;
 }
 
-type ChunkResult = { findings: IaMathFinding[]; checkedSummary: string; uncheckable: string[] };
+type Checked = { location: string; what: string };
+type ChunkResult = { findings: IaMathFinding[]; checkedSummary: string; checked: Checked[]; uncheckable: string[] };
 
 async function runOne(prompt: string, images: string[], forbiddenNames: string[]): Promise<ChunkResult> {
   const raw = await runClaudeJson<Partial<IaMathCheck>>({
@@ -147,6 +158,9 @@ async function runOne(prompt: string, images: string[], forbiddenNames: string[]
       }))
       .filter((f) => f.teacherNote || f.studentNote),
     checkedSummary: clean(raw.checkedSummary),
+    checked: (Array.isArray(raw.checked) ? raw.checked : [])
+      .map((c: Partial<Checked>) => ({ location: clean(c?.location), what: clean(c?.what) }))
+      .filter((c) => c.what),
     uncheckable: (Array.isArray(raw.uncheckable) ? raw.uncheckable : []).map(clean).filter(Boolean),
   };
 }
@@ -191,6 +205,7 @@ export function mergeChunks(
   ];
   return {
     findings,
+    checked: ok.flatMap((r) => r.value.checked ?? []),
     checkedSummary: ok
       .map((r) => (many ? `${label(r.range)}: ${r.value.checkedSummary}` : r.value.checkedSummary))
       .filter((s) => s.trim())
@@ -206,7 +221,7 @@ export async function runMathCheck(args: {
   forbiddenNames: string[];
 }): Promise<IaMathCheck> {
   const { explorationId, doc, pseudonym, forbiddenNames } = args;
-  const { images, pageTexts } = await preparePages(explorationId, doc, forbiddenNames);
+  const { images, pageTexts, textOnlyReason } = await preparePages(explorationId, doc, forbiddenNames);
   let merged: ChunkResult;
 
   if (images.length === 0) {
@@ -240,6 +255,7 @@ export async function runMathCheck(args: {
   return {
     ...merged,
     usedPageImages: images.length > 0,
+    ...(textOnlyReason ? { textOnlyReason } : {}),
     documentId: doc.id,
     checkedAt: new Date().toISOString(),
   };

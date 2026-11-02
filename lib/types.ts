@@ -571,6 +571,7 @@ export type IaCriterionKey = "A" | "B" | "C" | "D" | "E";
 export interface IaEvidence {
   quote: string;
   location: string;
+  why?: string; // what this quote shows for the criterion, in the rubric's terms (no level numbers)
 }
 
 export interface IaCriterionMark {
@@ -608,6 +609,7 @@ export interface IaChecklistMark {
   status?: IaChecklistStatus; // the AI's judgement; absent = not evident
   quote?: string; // verbatim from the draft, when there is something to quote
   location?: string;
+  why?: string; // the AI's one-sentence reason the item is (partly) true of the draft
   teacherStatus?: IaChecklistStatus; // the teacher's override
   comment?: string; // the teacher's comment on this item
 }
@@ -636,9 +638,11 @@ export interface IaMathFinding {
 
 export interface IaMathCheck {
   findings: IaMathFinding[];
-  checkedSummary: string; // what was checked and found correct, for the teacher
+  checkedSummary: string; // one or two sentences for the teacher
+  checked?: { location: string; what: string }[]; // each thing verified and found correct
   uncheckable: string[]; // what could not be verified and why (e.g. raw data not given)
   usedPageImages: boolean; // false when only the text could be checked (Word file, scanned or too long)
+  textOnlyReason?: "word" | "scan" | "too-long" | "no-file"; // why the pages could not be used
   documentId?: number; // the uploaded draft this check was run on
   checkedAt?: string; // ISO time the check finished
 }
@@ -649,6 +653,8 @@ export interface IaDraftFeedback {
   toddleComment?: string; // short, student-facing comment ready for Toddle
   mathCheck?: IaMathCheck;
   mathCheckError?: string; // the math check failed; the rest of the feedback still stands
+  generatedAt?: string; // ISO time the criteria were generated
+  mathCheckedAtGeneration?: string | null; // checkedAt of the math check the criteria were written with; null = none
 }
 
 export type IaDeadlineRow = {

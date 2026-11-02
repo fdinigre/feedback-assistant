@@ -16,26 +16,24 @@
 import * as mupdf from "mupdf";
 import { indexPdfText, locateQuote, type PageText, type Quad } from "@/lib/ia/pdf-text";
 import type { RubricCriterion } from "@/lib/ia/rubric-items";
+import { CATEGORY_STYLE, type TargetCategory } from "@/lib/ia/feedback-targets";
+import { feedbackMathState, MATH_STATE_TEXT } from "@/lib/ia/feedback-state";
 import type { IaChecklistStatus, IaDraftFeedback } from "@/lib/types";
 
 export type AnnotatedVersion = "teacher" | "student";
-type Category = "A" | "B" | "C" | "D" | "E" | "M";
+type Category = TargetCategory;
 
-/** Highlighter colours; they differ in lightness as well as hue so they survive greyscale printing a little better. */
-export const CATEGORY_STYLE: Record<Category, { rgb: [number, number, number]; hex: string; name: string }> = {
-  A: { rgb: [0.58, 0.77, 0.99], hex: "#93C5FD", name: "Presentation" },
-  B: { rgb: [0.77, 0.71, 0.99], hex: "#C4B5FD", name: "Mathematical communication" },
-  C: { rgb: [0.53, 0.94, 0.67], hex: "#86EFAC", name: "Personal engagement" },
-  D: { rgb: [0.99, 0.9, 0.54], hex: "#FDE68A", name: "Reflection" },
-  E: { rgb: [0.99, 0.73, 0.45], hex: "#FDBA74", name: "Use of mathematics" },
-  M: { rgb: [0.97, 0.44, 0.44], hex: "#F87171", name: "Check the mathematics" },
-};
+export { CATEGORY_STYLE };
 
 const MAX_BY: Record<string, number> = { A: 4, B: 4, C: 3, D: 3, E: 6 };
 const STATUS_WORD: Record<IaChecklistStatus, string> = { evident: "Evident", partly: "Partly", not_evident: "Not evident" };
 
-type Mark = { category: Category; quote: string; location: string; comment: string };
-export type PlacedComment = { n: number; category: Category; page: number | null; comment: string; quote: string; location: string; approx: boolean };
+/** One highlight and its note: a short heading (what kind of note) and the note itself. */
+type Mark = { category: Category; quote: string; location: string; heading: string; comment: string };
+export type PlacedComment = Mark & { n: number; page: number | null; approx: boolean };
+
+/** A reason that slipped in a level or mark is kept off the student copy. */
+const LEVEL_TALK = /\b(level|band|mark)s?\s*\d|\b\d\s*\/\s*(3|4|6|20)\b/i;
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -43,6 +41,7 @@ function esc(s: string): string {
 
 /** The marks each version shows, in reading order of the criteria. */
 export function collectMarks(fb: IaDraftFeedback, rubric: RubricCriterion[], version: AnnotatedVersion): Mark[] {
+  const teacher = version === "teacher";
   const marks: Mark[] = [];
   const itemText = new Map<string, string>();
   for (const c of rubric) for (const b of c.bands) for (const i of b.items) itemText.set(i.id, i.text);
@@ -50,16 +49,18 @@ export function collectMarks(fb: IaDraftFeedback, rubric: RubricCriterion[], ver
   for (const c of fb.criteria) {
     const cat = c.criterion as Category;
     const max = MAX_BY[c.criterion] ?? 0;
+    const name = CATEGORY_STYLE[cat].name;
     for (const e of c.evidence ?? []) {
       if (!e.quote?.trim()) continue;
+      const why = e.why?.trim() ?? "";
       marks.push({
         category: cat,
         quote: e.quote,
         location: e.location,
-        comment:
-          version === "teacher"
-            ? `${c.criterion} · ${CATEGORY_STYLE[cat].name}: evidence for level ${c.level}/${max}.`
-            : `${CATEGORY_STYLE[cat].name}.`,
+        heading: teacher ? `${c.criterion} · ${name} · evidence for ${c.level}/${max}` : name,
+        comment: teacher
+          ? why || "No reason was recorded with this feedback — regenerate it to get one."
+          : LEVEL_TALK.test(why) ? "" : why,
       });
     }
     for (const m of c.checklist ?? []) {
@@ -73,10 +74,12 @@ export function collectMarks(fb: IaDraftFeedback, rubric: RubricCriterion[], ver
         category: cat,
         quote: m.quote ?? "",
         location: m.location ?? "",
-        comment:
-          version === "teacher"
-            ? `${m.id} [${STATUS_WORD[status]}${m.teacherStatus ? ", set by you" : ""}] ${text}${own ? ` — ${own}` : ""}`
-            : `${CATEGORY_STYLE[cat].name}: ${status === "partly" ? "partly — " : ""}${text}${own ? ` — ${own}` : ""}`,
+        heading: teacher
+          ? `${m.id} · ${STATUS_WORD[status]}${m.teacherStatus ? " (set by you)" : ""}`
+          : `${name}${status === "partly" ? " · partly" : ""}`,
+        comment: `${text}${
+          m.why?.trim() && (teacher || !LEVEL_TALK.test(m.why)) ? ` — ${m.why.trim()}` : ""
+        }${own ? ` ${teacher ? "Your comment" : "Teacher"}: ${own}` : ""}`,
       });
     }
   }
@@ -86,13 +89,11 @@ export function collectMarks(fb: IaDraftFeedback, rubric: RubricCriterion[], ver
       category: "M",
       quote: f.quote,
       location: f.location,
-      comment:
-        version === "teacher"
-          ? `Math (${f.severity}, ${f.kind}): ${f.teacherNote} — Student sees: “${f.studentNote}”`
-          : f.studentNote,
+      heading: teacher ? `Math · ${f.severity} · ${f.kind}` : "Check the mathematics",
+      comment: teacher ? `${f.teacherNote} Student sees: “${f.studentNote}”` : f.studentNote,
     });
   }
-  return marks.filter((m) => m.comment.trim());
+  return marks.filter((m) => m.heading.trim() || m.comment.trim());
 }
 
 function marginMarker(page: mupdf.PDFPage, quad: Quad, n: number, rgb: [number, number, number]): void {
@@ -105,6 +106,20 @@ function marginMarker(page: mupdf.PDFPage, quad: Quad, n: number, rgb: [number, 
   annot.setColor(rgb); // for FreeText, the colour is the box background
   annot.setBorderWidth(0);
   annot.update();
+}
+
+/** The teacher copy's math section: what was checked (one line each) and what could not be. */
+function mathSection(m: NonNullable<IaDraftFeedback["mathCheck"]>): string {
+  const checked = m.checked ?? [];
+  return (
+    `<h2>Math check</h2>${m.checkedSummary && checked.length ? `<p>${esc(m.checkedSummary)}</p>` : ""}` +
+    (checked.length
+      ? `<p class="lab">Checked and found correct</p><ul>${checked.map((c) => `<li><b>${esc(c.location)}</b> — ${esc(c.what)}</li>`).join("")}</ul>`
+      : m.checkedSummary
+        ? m.checkedSummary.split(/\s(?=pp?\.\s*\d+(?:\s*-\s*\d+)?:)/).map((t) => `<p>${esc(t.trim())}</p>`).join("")
+        : "") +
+    (m.uncheckable.length ? `<p class="lab">Could not verify</p><ul>${m.uncheckable.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>` : "")
+  );
 }
 
 function summaryHtml(args: {
@@ -120,6 +135,8 @@ function summaryHtml(args: {
     `<span style="background:${CATEGORY_STYLE[c].hex};padding:0 6px;border:1px solid #888">&nbsp;</span>`;
   const parts: string[] = [];
   parts.push(`<h1>IA draft feedback${teacher ? " — teacher copy" : ""}</h1><p class="sub">${esc(studentName)}</p>`);
+  const mathState = feedbackMathState(fb);
+  if (teacher && mathState !== "ok") parts.push(`<p class="warn">${esc(MATH_STATE_TEXT[mathState])}</p>`);
 
   if (teacher && fb.criteria.length > 0) {
     const total = fb.criteria.reduce((s, c) => s + (c.level ?? 0), 0);
@@ -138,16 +155,10 @@ function summaryHtml(args: {
         }${list("Strengths", c.strengths)}${list("To reach the next band", c.gaps)}${list("Suggested fixes (not for the student)", c.suggestions)}</div>`
       );
     }
-    if (fb.mathCheck) {
-      parts.push(`<h2>Math check</h2><p>${esc(fb.mathCheck.checkedSummary)}</p>`);
-      if (fb.mathCheck.uncheckable.length) parts.push(`<p class="lab">Could not verify</p><ul>${fb.mathCheck.uncheckable.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`);
-    }
+    if (fb.mathCheck) parts.push(mathSection(fb.mathCheck));
   } else if (teacher) {
     parts.push(`<p class="sub">Only the math check has run; the criteria come with the draft feedback.</p>`);
-    if (fb.mathCheck) {
-      parts.push(`<h2>Math check</h2><p>${esc(fb.mathCheck.checkedSummary)}</p>`);
-      if (fb.mathCheck.uncheckable.length) parts.push(`<p class="lab">Could not verify</p><ul>${fb.mathCheck.uncheckable.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>`);
-    }
+    if (fb.mathCheck) parts.push(mathSection(fb.mathCheck));
   } else {
     if (fb.toddleComment?.trim()) parts.push(`<h2>Overall</h2><p>${esc(fb.toddleComment)}</p>`);
     const withComment = fb.criteria.filter((c) => c.teacherComment?.trim());
@@ -164,28 +175,31 @@ function summaryHtml(args: {
       .join(" &nbsp; ")}</p>`
   );
 
+  // One block per comment, its criterion's colour down the left edge. Plain blocks,
+  // not a table: the PDF's HTML layout gets narrow table columns wrong.
+  const block = (c: PlacedComment, withNumber: boolean) =>
+    `<div class="cm" style="border-color:${CATEGORY_STYLE[c.category].hex}">` +
+    `<p class="hd">${withNumber ? `<b>${c.n}</b> &nbsp;` : ""}${esc(c.heading)}${!withNumber && c.location ? ` <span class="sub">· ${esc(c.location)}</span>` : ""}</p>` +
+    (c.comment.trim() ? `<p>${esc(c.comment)}</p>` : "") +
+    (teacher && c.quote.trim() ? `<p class="q">“${esc(c.quote)}”${c.approx ? " (highlight placed on part of the quote)" : ""}</p>` : "") +
+    (!teacher && !withNumber && c.quote.trim() ? `<p class="q">“${esc(c.quote)}”</p>` : "") +
+    `</div>`;
+
   const placed = comments.filter((c) => c.page != null);
   const unplaced = comments.filter((c) => c.page == null);
   if (placed.length) {
-    parts.push(
-      `<h2>Comments on the pages</h2><p class="sub">Each number matches the marker in the margin beside a highlight.</p><table>${placed
-        .map(
-          (c) =>
-            `<tr><td class="n">${swatch(c.category)}&nbsp;<b>${c.n}</b></td><td class="n">p.&nbsp;${c.page}</td><td>${esc(c.comment)}${c.approx && teacher ? ' <span class="sub">(highlight placed on part of the quote)</span>' : ""}</td></tr>`
-        )
-        .join("")}</table>`
-    );
+    parts.push(`<h2>Comments on the pages</h2><p class="sub">Each number matches the marker in the margin beside a highlight.</p>`);
+    const pageNums = [...new Set(placed.map((c) => c.page as number))].sort((a, b) => a - b);
+    for (const pg of pageNums) {
+      parts.push(`<h3 class="pg">Page ${pg}</h3>`);
+      parts.push(placed.filter((c) => c.page === pg).sort((a, b) => a.n - b.n).map((c) => block(c, true)).join(""));
+    }
   }
   if (unplaced.length) {
     parts.push(
       `<h2>${hadPdf ? "Comments that could not be placed on a page" : "Comments"}</h2>${
         hadPdf ? `<p class="sub">The quoted text could not be found in the PDF (for example, it sits inside an equation or a picture).</p>` : ""
-      }<table>${unplaced
-        .map(
-          (c) =>
-            `<tr><td>${swatch(c.category)}</td><td>${esc(c.location || "")}</td><td>${c.quote ? `“${esc(c.quote)}” — ` : ""}${esc(c.comment)}</td></tr>`
-        )
-        .join("")}</table>`
+      }${unplaced.map((c) => block(c, false)).join("")}`
     );
   }
 
@@ -194,7 +208,10 @@ body{font-family:sans-serif;font-size:9.5pt;color:#1e293b}
 h1{font-size:16pt;margin:0 0 2pt 0}h2{font-size:12pt;margin:12pt 0 4pt 0}h3{font-size:10.5pt;margin:0 0 3pt 0}
 .sub{color:#64748b;font-size:8.5pt}.lab{font-weight:bold;margin:4pt 0 0 0}
 table{border-collapse:collapse;width:100%}td,th{border:1px solid #cbd5e1;padding:3pt;vertical-align:top;text-align:left}
-td.n{white-space:nowrap;width:1%}
+.cm{border-left:5px solid #999;padding:2pt 0 2pt 7pt;margin:0 0 6pt 0}.cm p{margin:0 0 1pt 0}
+.hd{font-weight:bold;font-size:9pt}.q{color:#475569;font-style:italic;font-size:8.5pt}
+h3.pg{margin:9pt 0 4pt 0;color:#334155}
+.warn{border-left:5px solid #d97706;padding:3pt 0 3pt 8pt;color:#92400e;margin:6pt 0}
 .crit{border-left:5px solid #999;padding:3pt 0 3pt 8pt;margin:6pt 0}ul{margin:2pt 0 2pt 14pt;padding:0}
 </style></head><body>${parts.join("\n")}</body></html>`;
 }
@@ -236,7 +253,7 @@ export function buildAnnotatedPdf(args: {
   for (const m of marks) {
     const hit = doc && m.quote.trim() ? locateQuote(pages, m.quote, m.location) : null;
     if (!hit || !doc || hit.quads.length === 0) {
-      comments.push({ n: 0, category: m.category, page: null, comment: m.comment, quote: m.quote, location: m.location, approx: false });
+      comments.push({ ...m, n: 0, page: null, approx: false });
       continue;
     }
     n++;
@@ -246,11 +263,11 @@ export function buildAnnotatedPdf(args: {
     annot.setQuadPoints(hit.quads);
     annot.setColor(style.rgb);
     annot.setOpacity(m.category === "M" ? 0.45 : 0.4);
-    annot.setContents(`${n}. ${m.comment}`);
+    annot.setContents(`${n}. ${m.heading}${m.comment.trim() ? ` — ${m.comment}` : ""}`);
     annot.setAuthor(version === "teacher" ? "Feedback Assistant (teacher copy)" : "Teacher feedback");
     annot.update();
     marginMarker(page, hit.quads[0], n, style.rgb);
-    comments.push({ n, category: m.category, page: hit.page, comment: m.comment, quote: m.quote, location: m.location, approx: !hit.exact });
+    comments.push({ ...m, n, page: hit.page, approx: !hit.exact });
   }
 
   let w = 595;
