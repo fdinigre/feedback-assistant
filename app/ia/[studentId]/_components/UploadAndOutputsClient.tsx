@@ -32,14 +32,11 @@ function latestByKind<T extends { kind: string }>(rows: T[], kind: string): T | 
   return rows.find((r) => r.kind === kind) ?? null;
 }
 
-/** Band colour by how close the level is to the criterion maximum. */
+/** Band colour: green above half the criterion's points, orange at half or below. */
 function band(level: number, max: number): { border: string; badge: string; label: string } {
-  const ratio = max > 0 ? level / max : 0;
-  if (ratio >= 0.75)
-    return { border: "border-l-emerald-500", badge: "bg-emerald-100 text-emerald-800", label: "strong" };
-  if (ratio >= 0.4)
-    return { border: "border-l-amber-500", badge: "bg-amber-100 text-amber-800", label: "developing" };
-  return { border: "border-l-rose-500", badge: "bg-rose-100 text-rose-800", label: "early" };
+  if (max > 0 && level > max / 2)
+    return { border: "border-l-emerald-500", badge: "bg-emerald-100 text-emerald-800", label: "above half" };
+  return { border: "border-l-orange-500", badge: "bg-orange-100 text-orange-800", label: "half or below" };
 }
 
 function wordCount(text: string | null | undefined): number {
@@ -474,8 +471,8 @@ export function UploadAndOutputsClient({
                   </p>
                 )}
                 <p className="text-xs text-slate-500">
-                  Colour shows how close each criterion is to its maximum on the current draft.
-                  Levels and comments are editable — adjust, then Save.
+                  Green: above half the criterion&rsquo;s points on this draft; orange: half or below.
+                  Levels and comments are editable, and save as you go.
                   {(feedback.mathCheck || feedback.mathCheckError) && (
                     <>
                       {" "}

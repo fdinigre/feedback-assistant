@@ -4,9 +4,59 @@ import { MarkingQuotes, StoppedNote } from "@/app/students/_components/CommonMis
 import type { CoreSkillStanding } from "@/lib/students/patterns";
 
 /**
- * The skills underneath every unit, where they have cost marks. Read from the
- * core-skill tags on each paper; a skill on two or more tasks is the thing to
- * keep an eye on all year, whatever the next unit is about.
+ * The skills carried over from earlier years: arithmetic and algebra every unit
+ * is assumed to stand on. These lead the section; the rest (graphing, units,
+ * calculator use and so on) sit underneath, folded away.
+ */
+const PRIOR_KNOWLEDGE_IDS = new Set([
+  "integers-signs",
+  "fractions",
+  "order-of-operations",
+  "algebraic-manipulation",
+  "solving-equations",
+  "substitution",
+  "powers-roots",
+  "percentages-ratio",
+]);
+
+function SkillGroups({ skills }: { skills: CoreSkillStanding[] }) {
+  const recurring = skills.filter((s) => s.assessmentTitles.length >= 2);
+  const once = skills.filter((s) => s.assessmentTitles.length < 2);
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {[
+        { title: "On more than one task", rows: recurring },
+        { title: "On one task so far", rows: once },
+      ]
+        .filter((group) => group.rows.length > 0)
+        .map((group) => (
+          <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-5">
+            <span className="block font-sans text-xs font-semibold uppercase tracking-wider text-slate-600">
+              {group.title}
+            </span>
+            <ul className="mt-3 space-y-3">
+              {group.rows.map((s) => (
+                <li key={s.id}>
+                  <p className="text-[15px] font-medium leading-snug">{s.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {s.questions} question{s.questions === 1 ? "" : "s"} ·{" "}
+                    {s.assessmentTitles.join(", ")}
+                  </p>
+                  <StoppedNote lastSeen={s.lastSeen} papersSince={s.papersSince} />
+                  <MarkingQuotes quotes={s.quotes} />
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * Prior-knowledge skills that have cost marks, read from the core-skill tags on
+ * each paper; a skill on two or more tasks is the thing to keep an eye on all
+ * year, whatever the next unit is about.
  */
 export function CoreSkillsPanel({
   skills,
@@ -38,49 +88,36 @@ export function CoreSkillsPanel({
   if (scanned === 0) {
     return (
       <p className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
-        Not sorted yet. Core skills are read from the marking once a paper has been through
+        Not sorted yet. These are read from the marking once a paper has been through
         &ldquo;Sort the mistakes&rdquo; on its assessment&rsquo;s submissions page: {unsortedLinks}.
       </p>
     );
   }
 
-  const recurring = skills.filter((s) => s.assessmentTitles.length >= 2);
-  const once = skills.filter((s) => s.assessmentTitles.length < 2);
+  const prior = skills.filter((s) => PRIOR_KNOWLEDGE_IDS.has(s.id));
+  const other = skills.filter((s) => !PRIOR_KNOWLEDGE_IDS.has(s.id));
 
   return (
     <div className="space-y-4">
-      {skills.length === 0 ? (
+      {prior.length === 0 ? (
         <p className="text-sm text-slate-600">
-          No core skill has cost marks on the papers sorted so far.
+          No prior-knowledge skill has cost marks on the papers sorted so far.
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[
-            { title: "On more than one task", rows: recurring },
-            { title: "On one task so far", rows: once },
-          ]
-            .filter((group) => group.rows.length > 0)
-            .map((group) => (
-              <div key={group.title} className="rounded-lg border border-slate-200 bg-white p-5">
-                <span className="block font-sans text-xs font-semibold uppercase tracking-wider text-slate-600">
-                  {group.title}
-                </span>
-                <ul className="mt-3 space-y-3">
-                  {group.rows.map((s) => (
-                    <li key={s.id}>
-                      <p className="text-[15px] font-medium leading-snug">{s.name}</p>
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {s.questions} question{s.questions === 1 ? "" : "s"} ·{" "}
-                        {s.assessmentTitles.join(", ")}
-                      </p>
-                      <StoppedNote lastSeen={s.lastSeen} papersSince={s.papersSince} />
-                      <MarkingQuotes quotes={s.quotes} />
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-        </div>
+        <SkillGroups skills={prior} />
+      )}
+      {other.length > 0 && (
+        <details className="rounded-lg border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700">
+            Other skills that cost marks ({other.length})
+            <span className="ml-2 font-normal text-slate-500">
+              graphing, units, notation, calculator use
+            </span>
+          </summary>
+          <div className="mt-4">
+            <SkillGroups skills={other} />
+          </div>
+        </details>
       )}
       {scanned < graded && (
         <p className="text-xs text-slate-500">

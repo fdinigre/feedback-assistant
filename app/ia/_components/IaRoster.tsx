@@ -25,12 +25,9 @@ const CRITERION_NAMES: Record<string, string> = {
   E: "Use of mathematics",
 };
 
-/** Same bands as the feedback cards: how close the level is to the criterion's maximum. */
+/** Same colours as the feedback cards: green above half the criterion's points, orange at half or below. */
 function levelStyle(level: number, max: number): string {
-  const ratio = max > 0 ? level / max : 0;
-  if (ratio >= 0.75) return "bg-emerald-100 text-emerald-800";
-  if (ratio >= 0.4) return "bg-amber-100 text-amber-800";
-  return "bg-rose-100 text-rose-800";
+  return max > 0 && level > max / 2 ? "bg-emerald-100 text-emerald-800" : "bg-orange-100 text-orange-800";
 }
 
 /** "2026-09-15 …" as "Sep 15th", so a milestone fits on one line. */
@@ -233,8 +230,8 @@ export function IaRoster({
       {message && <p className="text-sm text-blue-700">{message}</p>}
 
       <p className="text-sm text-slate-600">
-        A–E and Total are the levels on each student&rsquo;s draft feedback (green strong, amber
-        developing, red early; faded with ↻ when the feedback is out of date).{" "}
+        A–E and Total are the levels on each student&rsquo;s draft feedback (green above half the
+        points, orange half or below; faded with ↻ when the feedback is out of date).{" "}
         Click a student (or <span className="font-medium">Open</span>) to go to their exploration —
         that&rsquo;s where you upload the <span className="font-medium">draft</span> or{" "}
         <span className="font-medium">final</span> and generate feedback or marks.

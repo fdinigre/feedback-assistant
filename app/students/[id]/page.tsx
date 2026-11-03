@@ -14,7 +14,6 @@ import {
   computeRecurrences,
   computeUnattempted,
 } from "@/lib/students/patterns";
-import { computeStrandProgress } from "@/lib/students/strands";
 import { listGradedSubmissions } from "@/lib/students/shared";
 import { computePotentialVsAttainment } from "@/lib/students/potential";
 import { computeBackground } from "@/lib/students/background";
@@ -27,7 +26,6 @@ import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { BandTrack, bandLabelOf } from "@/app/students/_components/LevelChart";
 import { CommonMistakesGrid } from "@/app/students/_components/CommonMistakes";
 import { TaskDetail } from "./_components/TaskDetail";
-import { StrandProgressList } from "./_components/StrandProgressList";
 import { CoreSkillsPanel } from "./_components/CoreSkillsPanel";
 import { BackgroundSection, YearGrid, type YearCard } from "./_components/Background";
 import { AtlPanel } from "./_components/AtlPanel";
@@ -102,7 +100,6 @@ export default async function StudentProfilePage({
   const areaBullets = computeAreasForImprovement(studentId, student);
   const recurrences = computeRecurrences(studentId);
   const unattempted = computeUnattempted(studentId);
-  const strands = computeStrandProgress(studentId);
   const coreSkills = computeCoreSkills(studentId);
   const graded = listGradedSubmissions(studentId);
   const skillsScanned = graded.filter((g) => hasSkillTags(g.submission.id)).length;
@@ -302,18 +299,9 @@ export default async function StudentProfilePage({
 
       {/* What follows is the year, not any one task: things that recur from
           unit to unit. Detail that belongs to one paper is folded away below. */}
-      {strands.length > 0 && (
-        <Section
-          title="Strand by strand"
-          lede="Each rubric strand across every task marked against it. The next band is the official descriptor, which any later task on the strand will ask for, whatever it is about."
-        >
-          <StrandProgressList strands={strands} />
-        </Section>
-      )}
-
       <Section
-        title="Core skills across units"
-        lede="The skills underneath every unit, where they have cost marks. One on more than one task is a habit to work on all year, not a bad day."
+        title="Prior knowledge to revisit"
+        lede="The basics from earlier years that keep costing marks, such as fractions, negative numbers and simple algebra. One on more than one task is a habit to work on all year, not a bad day."
       >
         <CoreSkillsPanel
           skills={coreSkills}
