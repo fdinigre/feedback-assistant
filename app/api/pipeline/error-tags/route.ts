@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { classifyErrors } from "@/lib/errors/classify";
-import { hasErrorTags, hasSkillTags } from "@/lib/db/queries";
+import { getSubmission, hasErrorTags, hasSkillTags } from "@/lib/db/queries";
+import { refreshSkillTargetsInBackground } from "@/lib/students/skillTargets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,10 @@ export async function POST(request: Request) {
   // shuffle them for nothing. Anything else is a full sort, including a re-run.
   const skillsOnly = hasErrorTags(submissionId) && !hasSkillTags(submissionId);
   try {
-    return NextResponse.json(await classifyErrors(submissionId, { skillsOnly }));
+    const result = await classifyErrors(submissionId, { skillsOnly });
+    // New mistakes identified: add or update that student's learning targets.
+    refreshSkillTargetsInBackground(getSubmission(submissionId)?.student_id);
+    return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

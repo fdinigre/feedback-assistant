@@ -22,6 +22,7 @@ import { computeNextSteps } from "@/lib/students/nextSteps";
 import { computeStudentNav } from "@/lib/students/nav";
 import { computeAtlHistory } from "@/lib/atl/history";
 import { getCachedInsights } from "@/lib/students/insights";
+import { getCachedSkillTargets } from "@/lib/students/skillTargets";
 import { Breadcrumb } from "@/app/_components/Breadcrumb";
 import { BandTrack, bandLabelOf } from "@/app/students/_components/LevelChart";
 import { CommonMistakesGrid } from "@/app/students/_components/CommonMistakes";
@@ -115,6 +116,7 @@ export default async function StudentProfilePage({
   const atl = computeAtlHistory(studentId);
   const nextSteps = computeNextSteps(studentId, student);
   const cachedInsights = getCachedInsights(studentId);
+  const skillTargets = getCachedSkillTargets(studentId);
 
   // A DP course runs over two years, and its grades are 1-7 per task rather than
   // a level per criterion: the semesters of Grade 11 as the school reported them,
@@ -301,13 +303,15 @@ export default async function StudentProfilePage({
           unit to unit. Detail that belongs to one paper is folded away below. */}
       <Section
         title="Prior knowledge to revisit"
-        lede="The basics from earlier years that keep costing marks, such as fractions, negative numbers and simple algebra. One on more than one task is a habit to work on all year, not a bad day."
+        lede="The basics from earlier years that keep costing marks, such as fractions, negative numbers and simple algebra, each written as a learning target from the mistakes in the marking. One on more than one task is a habit to work on all year, not a bad day."
       >
         <CoreSkillsPanel
           skills={coreSkills}
           scanned={skillsScanned}
           graded={graded.length}
           unsorted={unsortedTasks}
+          studentId={studentId}
+          targets={skillTargets}
         />
       </Section>
 

@@ -125,6 +125,21 @@ export const CORE_SKILLS: CoreSkill[] = [
   },
 ];
 
+/**
+ * The skills carried over from earlier years: the arithmetic and algebra every
+ * unit is assumed to stand on. The student page leads with these.
+ */
+export const PRIOR_KNOWLEDGE_SKILL_IDS = new Set([
+  "integers-signs",
+  "fractions",
+  "order-of-operations",
+  "algebraic-manipulation",
+  "solving-equations",
+  "substitution",
+  "powers-roots",
+  "percentages-ratio",
+]);
+
 export const CORE_SKILL_BY_ID = new Map(CORE_SKILLS.map((s) => [s.id, s]));
 
 export function isCoreSkillId(value: unknown): value is string {

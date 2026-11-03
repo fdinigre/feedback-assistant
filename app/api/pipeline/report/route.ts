@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getAssessment, getSubmission } from "@/lib/db/queries";
 import { generateReport } from "@/lib/pipeline/report";
 import { generateDpReport } from "@/lib/pipeline/report-dp";
+import { refreshSkillTargetsInBackground } from "@/lib/students/skillTargets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
       assessment?.programme === "DP"
         ? await generateDpReport(submissionId)
         : await generateReport(submissionId);
+    // A new report: bring that student's learning targets up to date.
+    refreshSkillTargetsInBackground(submission?.student_id);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });

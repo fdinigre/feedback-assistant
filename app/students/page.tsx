@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { listStudentsForIndex } from "@/lib/students/overview";
 import { StudentIndexClient } from "./_components/StudentIndexClient";
+import { WriteAllTargetsButton } from "./_components/WriteAllTargetsButton";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default function StudentsIndexPage() {
             All students grouped by class, with their latest graded criterion levels.
           </p>
         </div>
+        <WriteAllTargetsButton />
       </div>
 
       {groups.every((g) => g.students.length === 0) ? (

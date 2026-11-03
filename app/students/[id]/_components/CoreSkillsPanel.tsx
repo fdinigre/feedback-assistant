@@ -1,25 +1,20 @@
 import Link from "next/link";
 
 import { MarkingQuotes, StoppedNote } from "@/app/students/_components/CommonMistakes";
+import { PRIOR_KNOWLEDGE_SKILL_IDS } from "@/lib/errors/core-skills";
 import type { CoreSkillStanding } from "@/lib/students/patterns";
+import type { SkillTargets } from "@/lib/students/skillTargets";
+import { WriteTargetsButton } from "./WriteTargetsButton";
 
-/**
- * The skills carried over from earlier years: arithmetic and algebra every unit
- * is assumed to stand on. These lead the section; the rest (graphing, units,
- * calculator use and so on) sit underneath, folded away.
- */
-const PRIOR_KNOWLEDGE_IDS = new Set([
-  "integers-signs",
-  "fractions",
-  "order-of-operations",
-  "algebraic-manipulation",
-  "solving-equations",
-  "substitution",
-  "powers-roots",
-  "percentages-ratio",
-]);
+type TargetBySkill = Map<string, { target: string; questionsAtWriting: number }>;
 
-function SkillGroups({ skills }: { skills: CoreSkillStanding[] }) {
+function SkillGroups({
+  skills,
+  targets,
+}: {
+  skills: CoreSkillStanding[];
+  targets?: TargetBySkill;
+}) {
   const recurring = skills.filter((s) => s.assessmentTitles.length >= 2);
   const once = skills.filter((s) => s.assessmentTitles.length < 2);
   return (
@@ -35,17 +30,37 @@ function SkillGroups({ skills }: { skills: CoreSkillStanding[] }) {
               {group.title}
             </span>
             <ul className="mt-3 space-y-3">
-              {group.rows.map((s) => (
-                <li key={s.id}>
-                  <p className="text-[15px] font-medium leading-snug">{s.name}</p>
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {s.questions} question{s.questions === 1 ? "" : "s"} ·{" "}
-                    {s.assessmentTitles.join(", ")}
-                  </p>
-                  <StoppedNote lastSeen={s.lastSeen} papersSince={s.papersSince} />
-                  <MarkingQuotes quotes={s.quotes} />
-                </li>
-              ))}
+              {group.rows.map((s) => {
+                const t = targets?.get(s.id);
+                return (
+                  <li key={s.id}>
+                    {t ? (
+                      <>
+                        <p className="text-[15px] font-medium leading-snug">{t.target}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {s.name} · {s.questions} question{s.questions === 1 ? "" : "s"} ·{" "}
+                          {s.assessmentTitles.join(", ")}
+                        </p>
+                        {t.questionsAtWriting !== s.questions && (
+                          <p className="mt-0.5 text-xs text-amber-700">
+                            The marking has changed since this was written. Rewrite the targets.
+                          </p>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-[15px] font-medium leading-snug">{s.name}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {s.questions} question{s.questions === 1 ? "" : "s"} ·{" "}
+                          {s.assessmentTitles.join(", ")}
+                        </p>
+                      </>
+                    )}
+                    <StoppedNote lastSeen={s.lastSeen} papersSince={s.papersSince} />
+                    <MarkingQuotes quotes={s.quotes} />
+                  </li>
+                );
+              })}
             </ul>
           </div>
         ))}
@@ -63,8 +78,13 @@ export function CoreSkillsPanel({
   scanned,
   graded,
   unsorted,
+  studentId,
+  targets,
 }: {
   skills: CoreSkillStanding[];
+  studentId: number;
+  /** The saved AI-written targets, or null before the teacher has asked for them. */
+  targets: SkillTargets | null;
   /** Graded papers that have been through the skills pass, out of `graded`. */
   scanned: number;
   graded: number;
@@ -94,17 +114,28 @@ export function CoreSkillsPanel({
     );
   }
 
-  const prior = skills.filter((s) => PRIOR_KNOWLEDGE_IDS.has(s.id));
-  const other = skills.filter((s) => !PRIOR_KNOWLEDGE_IDS.has(s.id));
+  const prior = skills.filter((s) => PRIOR_KNOWLEDGE_SKILL_IDS.has(s.id));
+  const other = skills.filter((s) => !PRIOR_KNOWLEDGE_SKILL_IDS.has(s.id));
+
+  const targetBySkill: TargetBySkill = new Map(
+    (targets?.targets ?? []).map((t) => [t.skill, t])
+  );
 
   return (
     <div className="space-y-4">
+      {prior.length > 0 && (
+        <WriteTargetsButton
+          studentId={studentId}
+          hasTargets={targetBySkill.size > 0}
+          generatedAt={targets?.generatedAt ?? null}
+        />
+      )}
       {prior.length === 0 ? (
         <p className="text-sm text-slate-600">
           No prior-knowledge skill has cost marks on the papers sorted so far.
         </p>
       ) : (
-        <SkillGroups skills={prior} />
+        <SkillGroups skills={prior} targets={targetBySkill} />
       )}
       {other.length > 0 && (
         <details className="rounded-lg border border-slate-200 bg-white p-4">
